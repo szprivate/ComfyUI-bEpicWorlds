@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ComfyUI-bEpicWorlds"
+version = "0.1.0"
+description = "Walkable worlds from reference images — a ComfyUI node pack, a Python library, and an MCP server for agents. Shown by the bEpic Image Viewer."
+requires-python = ">=3.10"
+dependencies = ["numpy", "pillow"]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+
+[tool.setuptools]
+packages = ["bepic_worlds"]
+
+# No [tool.comfy] block and no publish workflow on purpose: nothing here is
+# published to the Comfy registry until that is decided.
