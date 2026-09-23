@@ -57,6 +57,13 @@ BIOMES = {
                     {"type": "bush", "count": 120, "scale": [0.4, 0.9], "layer": 0}],
         "snow": False,
     },
+    # Indoors: a flat floor, a ceiling at the height the depth map measures,
+    # columns on a grid — a car park, a hall, a warehouse. See builder.build_interior.
+    "interior": {
+        "terrain": {"height": 0.0, "roughness": 0.3},
+        "scatter": [{"type": "column", "count": 400, "grid": [8.5, 8.5], "scale": [1.0, 1.0], "layer": -1}],
+        "snow": False,
+    },
     "snow": {
         "terrain": {"height": 30, "roughness": 0.45},
         "scatter": [{"type": "pine", "count": 900, "scale": [0.8, 1.6], "layer": 0},
@@ -72,13 +79,15 @@ BIOME_WORDS = {
     "desert": ["desert", "dunes", "sand", "canyon", "arid", "badlands"],
     "snow": ["snow", "winter", "tundra", "ice", "arctic", "frozen"],
     "hills": ["hills", "hilly", "valley", "countryside", "rolling"],
+    "interior": ["interior", "indoor", "indoors", "inside", "garage", "parking", "hall", "room",
+                 "warehouse", "corridor", "basement", "tunnel", "underground", "factory"],
 }
 
 TIMES = {"dawn": 5, "sunrise": 5, "morning": 25, "noon": 65, "midday": 65,
          "afternoon": 45, "late afternoon": 25, "golden hour": 10, "evening": 12,
          "sunset": 4, "dusk": 2, "twilight": 1, "night": -8}
 
-SCATTER_TYPES = ("pine", "tree", "bush", "grass", "rock", "model")
+SCATTER_TYPES = ("pine", "tree", "bush", "grass", "rock", "column", "model")
 
 
 def parse(spec):
@@ -130,6 +139,8 @@ def from_text(text):
 
 def guess_biome(analysis):
     """A biome from the picture alone, when nothing was said."""
+    if analysis.get("indoor"):
+        return "interior"
     ground = analysis.get("ground", "#777777").lstrip("#")
     r, g, b = (int(ground[i:i + 2], 16) / 255 for i in (0, 2, 4))
     if min(r, g, b) > 0.75:

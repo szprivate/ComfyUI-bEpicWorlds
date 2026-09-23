@@ -319,7 +319,7 @@ class WorldStore:
             return ids
         if kind == "clear_area":
             ids = [op["id"]] if op.get("id") else [i["id"] for i in scene["items"] if i.get("kind") == "scatter"]
-            area = {"center": [float(v) for v in op["center"]][:2], "radius": float(op["radius"])}
+            area = {"center": [float(v) for v in op["center"]][:2], "radius": float(op["radius"])}   # a circle
             for one in ids:
                 s = self._item(scene, one)["scatter"]
                 cur = s.get("clear")

@@ -58,7 +58,7 @@ def create_world(reference: str, name: str = "world", spec: str = "", depth: str
         name in ComfyUI's input folder.
     spec: what to make, in words ("misty pine forest at sunset, sparse") or JSON
         ({"biome": "alpine", "time": "morning", "terrain": {"height": 60}, "scatter": [...]}).
-        Biomes: meadow, forest, hills, alpine, desert, snow. Anything left out comes from
+        Biomes: meadow, forest, hills, alpine, desert, snow, interior (car parks, halls — also chosen when the depth map shows a ceiling). Anything left out comes from
         the picture.
     depth / heightmap / panorama: optional images — a depth map of the reference (adds the
         picture as a 3D hero view), a terrain heightmap, a 360° sky.

@@ -47,9 +47,24 @@ def load_rgb(src):
 
 
 def load_gray(src):
-    """A single-channel float image in [0, 1] (depth maps, heightmaps)."""
-    rgb = load_rgb(src)
-    return None if rgb is None else rgb.mean(axis=-1)
+    """A single-channel float image in [0, 1] (depth maps, heightmaps).
+
+    Keeps whatever precision the source has: a 16-bit PNG stays 16-bit (a
+    depth map needs it — inverse depth puts everything past a few metres in
+    the bottom few percent of the range), and a float tensor stays float."""
+    if src is None:
+        return None
+    im = None
+    if isinstance(src, str):
+        im = Image.open(src)
+    elif isinstance(src, Image.Image):
+        im = src
+    if im is not None and im.mode in ("I;16", "I;16B", "I;16L", "I", "F"):
+        a = np.asarray(im, dtype=np.float32)
+        hi = 65535.0 if im.mode.startswith("I;16") or a.max() > 255 else 255.0
+        return np.clip(a / hi, 0.0, 1.0)
+    rgb = load_rgb(im if im is not None else src)
+    return rgb.mean(axis=-1)
 
 
 def to_pil(arr):

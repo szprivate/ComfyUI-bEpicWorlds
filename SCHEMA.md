@@ -17,7 +17,12 @@ Colours are `"#rrggbb"`. A file is `{"path": "<absolute>", "name": "...", "exter
  "visible": true, "tracks": {}, "parent": null}
 ```
 Ids made by the builder are fixed: `env`, `terrain`, `scatter_<type>` (then
-`scatter_<type>_1`…), `refcam`, `hero`.
+`scatter_<type>_1`…), `refcam`, `hero`, and for an interior also `ceiling`.
+
+**Interiors** (biome `interior` — chosen by words like garage / hall / indoor, or
+when the depth map shows a ceiling): `terrain` is a flat floor, `ceiling` a
+second terrain turned over at the measured height and not walkable, a `column`
+scatter on a grid, and overhead light without shadows in place of a sun.
 
 ## `environment` (id `env`, one per world)
 | field | meaning |
@@ -42,12 +47,13 @@ Ids made by the builder are fixed: `env`, `terrain`, `scatter_<type>` (then
 | `terrain.layers[0..3]` | `{name, src?, color, tile}` — ground, rock, cliff, peak; `tile` = metres per texture repeat |
 | `terrain.rules` | `rockSlope: [from, to]`, `cliffSlope: [from, to]` (degrees), `peak: [from, to]` (0..1 of height) |
 | `terrain.splat` | optional RGBA image: layer weights, overrides `rules` |
+| `terrain.walkable` | `false` for a surface you don't stand on (an interior's ceiling: a terrain turned over, rotation `[180, 0, 0]`) |
 
 ## `scatter` (ids `scatter_*`)
 | field | meaning |
 |---|---|
 | `scatter.target` | terrain id to grow on (`terrain`) |
-| `scatter.source.type` | `pine`, `tree`, `bush`, `grass`, `rock`, or `model` (+ `source.src`) |
+| `scatter.source.type` | `pine`, `tree`, `bush`, `grass`, `rock`, `column`, or `model` (+ `source.src`) |
 | `scatter.count` | instances, 0 … 200000 |
 | `scatter.seed` | placement seed |
 | `scatter.scale` | `[min, max]` size multiplier |
@@ -55,7 +61,9 @@ Ids made by the builder are fixed: `env`, `terrain`, `scatter_<type>` (then
 | `scatter.maxSlope` | degrees |
 | `scatter.color` | tint |
 | `scatter.wind` | sway strength, 0 = still |
-| `scatter.clear` | `{center: [x, z], radius}` or a list of them: kept empty |
+| `scatter.clear` | kept empty: circles `{center: [x, z], radius}` and wedges `{wedge: {apex: [x, z], yaw, half, range}}` (a view a picture already covers; yaw 0 = −Z, `half` degrees each side), one or a list |
+| `scatter.grid` | `[dx, dz]` metres: a regular layout instead of random (columns in a hall) |
+| `scatter.aspect` | stretches the height alone (a unit column × the room height) |
 
 ## `depthmesh` (id `hero`)
 The reference picture pushed out by its depth map, drawn unlit, standing where
