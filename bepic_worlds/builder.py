@@ -114,15 +114,42 @@ def scatter_item(entry, index, clear, foliage, rock_color):
     return item
 
 
+def depth_range(dmap, fov, pitch, eye_height, world_size):
+    """Metres for the two ends of a relative depth map, so the picture's ground
+    lands on the terrain's.
+
+    A depth model's output has no scale. But the bottom middle of a landscape
+    shot is ground, and a camera `eye_height` above flat ground, tilted by
+    `pitch`, meets that ground along the frame's bottom edge at a distance
+    geometry gives: that sets `near` (the map's value there says how far that
+    is from the map's own nearest). `far` is where the terrain runs out."""
+    h, w = dmap.shape[:2]
+    patch = dmap[int(h * 0.94):, int(w * 0.4):int(w * 0.6)]
+    d_bottom = float(np.clip(np.median(patch) if patch.size else 1.0, 0.05, 1.0))
+    below = math.radians(fov / 2.0 - pitch)            # the bottom edge's angle under the horizon
+    if below <= math.radians(2):
+        return 2.0, world_size * 0.45
+    along = eye_height / math.sin(below)
+    z_bottom = along * math.cos(math.radians(fov / 2.0))   # depth along the camera's axis
+    far = world_size * 0.45
+    # Inverse-depth interpolation (as the viewer does it): 1/z = d/near + (1-d)/far.
+    inv_near = (1.0 / z_bottom - (1.0 - d_bottom) / far) / d_bottom
+    near = 1.0 / inv_near if inv_near > 0 else z_bottom
+    return round(float(max(0.05, near)), 3), round(float(far), 2)
+
+
 def build_world(reference, out_dir, name="world", spec=None, depth=None, heightmap=None,
-                panorama=None, fov=50.0, world_size=240.0, eye_height=1.7, seed=None):
+                panorama=None, fov=50.0, world_size=240.0, eye_height=1.7, seed=None,
+                assets_dir=None):
     """Build a world into `out_dir`. Returns (scene, meta).
 
     `reference`, `depth`, `heightmap` and `panorama` take anything
     reference.load_rgb reads: a path, a PIL image, an array or a ComfyUI
-    tensor. Only `reference` is needed.
+    tensor. Only `reference` is needed. `assets_dir` is where its files go
+    (default `<out_dir>/assets`) — a rebuild gets a folder of its own, so the
+    versions before it keep the files they point at.
     """
-    assets = os.path.join(out_dir, "assets")
+    assets = assets_dir or os.path.join(out_dir, "assets")
     os.makedirs(assets, exist_ok=True)
     rgb = ref.load_rgb(reference)
     ref_path = _save(rgb, os.path.join(assets, "reference.png"))
@@ -193,11 +220,13 @@ def build_world(reference, out_dir, name="world", spec=None, depth=None, heightm
     items.append(cam)
 
     if depth is not None:
-        d_path = _save(ref.load_gray(depth), os.path.join(assets, "depth.png"))
+        dmap = ref.load_gray(depth)
+        d_path = _save(dmap, os.path.join(assets, "depth.png"))
+        near, far = depth_range(dmap, fov, pitch, eye_height, size)
         items.append({"id": "hero", "kind": "depthmesh", "name": "Reference view",
                       **_transform(eye, (pitch, 0, 0)),
                       "depthmesh": {"src": src(ref_path), "depth": src(d_path), "fov": float(fov),
-                                    "near": 2.0, "far": size * 0.45, "cut": 0.12,
+                                    "near": near, "far": far, "cut": 0.12,
                                     "invert": False, "segments": 256}})
 
     scene = {

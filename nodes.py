@@ -72,7 +72,11 @@ class bEpicWorldFromReference:
                            fov=fov, world_size=world_size, seed=seed, note="made by node")
         if open_in_viewer:
             routes.open_in_viewer(summary["name"])
-        assets = os.path.join(summary["folder"], "assets")
+        # This version's files (a rebuild keeps them in a folder of its own).
+        scene = s.load(summary["name"])
+        cam = next((i for i in scene["items"] if i.get("id") == "refcam"), None)
+        ref_path = ((cam or {}).get("reference") or {}).get("src", {}).get("path")
+        assets = os.path.dirname(ref_path) if ref_path else os.path.join(summary["folder"], "assets")
         ui = _ui_images([os.path.join(assets, f) for f in
                          ("reference.png", "heightmap_preview.png", "tex_ground.png")])
         return {"ui": ui, "result": (summary["name"], summary["world_json"], json.dumps(summary, indent=1))}

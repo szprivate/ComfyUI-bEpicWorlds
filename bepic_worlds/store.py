@@ -129,15 +129,23 @@ class WorldStore:
 
     # ── making and reading ───────────────────────────────────────────────
     def create(self, reference, name="world", overwrite=False, note="created", **kwargs):
+        """Build a world. With `overwrite`, a world of that name is rebuilt as
+        its next version — the older versions and the feedback stay."""
         name = safe_name(name) if overwrite else self._unique(name)
         d = self.dir(name)
-        scene, meta = builder.build_world(reference, d, name=name, **kwargs)
-        meta["created"] = _now()
-        meta["history"] = [{"version": 1, "time": _now(), "note": note}]
+        previous = self.meta(name) if self.exists(name) else None
+        version = self.version(name) + 1 if previous is not None else 1
+        assets = os.path.join(d, "assets") if version == 1 else os.path.join(d, "assets", f"v{version:03d}")
+        scene, meta = builder.build_world(reference, d, name=name, assets_dir=assets, **kwargs)
+        if previous is not None:
+            meta["created"] = previous.get("created", _now())
+            meta["history"] = previous.get("history", []) + [
+                {"version": version, "time": _now(), "note": note if note != "created" else "rebuilt"}]
+        else:
+            meta["created"] = _now()
+            meta["history"] = [{"version": 1, "time": _now(), "note": note}]
         _write(os.path.join(d, "meta.json"), meta)
-        self._save_scene(name, scene, 1)
-        if overwrite:
-            open(os.path.join(d, "feedback.jsonl"), "a").close()
+        self._save_scene(name, scene, version)
         return self.summary(name)
 
     def load(self, name, version=None):
