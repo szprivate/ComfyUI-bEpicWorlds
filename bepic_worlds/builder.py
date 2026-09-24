@@ -268,7 +268,7 @@ def ceiling_height(dmap, fov, pitch, eye_height, near, far, curve=None):
 
 def build_world(reference, out_dir, name="world", spec=None, depth=None, heightmap=None,
                 panorama=None, fov=50.0, world_size=240.0, eye_height=1.7, seed=None,
-                assets_dir=None):
+                assets_dir=None, pitch=None):
     """Build a world into `out_dir`. Returns (scene, meta).
 
     `reference`, `depth`, `heightmap` and `panorama` take anything
@@ -283,6 +283,12 @@ def build_world(reference, out_dir, name="world", spec=None, depth=None, heightm
     ref_path = _save(rgb, os.path.join(assets, "reference.png"))
 
     analysis = ref.analyze(rgb, fov=fov)
+    if pitch is not None:
+        # A tilt measured from objects of known size (assets.fit_pitch) beats
+        # the horizon guessed from colours; the horizon row follows from it.
+        analysis["pitch"] = float(pitch)
+        analysis["horizon"] = round(0.5 + math.tan(math.radians(float(pitch))) / (2 * math.tan(math.radians(fov) / 2)), 4)
+        analysis["pitch_source"] = "objects"
     dmap = ref.load_gray(depth) if depth is not None else None
     # Indoors can't be told from colours alone (an overcast sky and a
     # concrete ceiling are both grey), but a depth map says it plainly.

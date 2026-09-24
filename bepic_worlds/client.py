@@ -87,6 +87,7 @@ class HttpBackend:
 
     def create(self, reference, name="world", open_in_viewer=True, **kw):
         body = {"reference": self._image(reference), "name": name, "open_in_viewer": open_in_viewer}
+        # (pitch: a tilt measured with fit_camera; everything else as before)
         for k in ("depth", "heightmap", "panorama"):
             if kw.get(k):
                 body[k] = self._image(kw.pop(k))

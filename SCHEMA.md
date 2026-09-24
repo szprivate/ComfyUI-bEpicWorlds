@@ -88,6 +88,27 @@ the reference camera stands.
 `cut` (tear threshold at depth edges, 0.05–0.3), `segments`, `encoding` (`rg16` 16-bit, or `gray`),
 `curve` (optional `[[d, metres], …]`, interpolated in inverse depth, where the map isn't one straight line).
 
+## `model` (ids `<label>_<n>`, from `add_asset`)
+A generated mesh (image-to-3D) standing where the picture shows the object.
+`src` (a GLB in the world's `assets/models/`, normalised to one unit tall on
+y = 0 and textured from the object's crop), `scale` = its height in metres,
+`rotation[1]` = yaw (facing the reference camera unless given),
+`from_picture` = the box `[x0, y0, x1, y1]` (0..1) it was placed from.
+
+## Real assets from the picture
+The routes an agent strings together (all POST, all JSON):
+1. `stage_reference {name}` → the reference as a ComfyUI input image, for SAM3.
+2. SAM3 on it with the prompt `"<label>:N"` (up to N instances), one mask per instance.
+3. `object_crops {name, label, masks, limit?, crops?}` → the instances, best first
+   (whole, unoccluded, big), each with `bbox`, `score`, `placement` and, for the
+   first `crops`, a `crop` (on white, for image-to-3D) and a `texture` (RGBA).
+4. `fit_camera {name, objects: [{bbox, height}]}` → the camera tilt that makes
+   objects of known height (cars 1.5 m) come out that tall; rebuild with
+   `create … pitch` when it differs from the world's.
+5. Image-to-3D on the best `crop`, then `edit` with `add_asset {glb, texture, label, bboxes}`.
+6. `material_crop {name, box, label?}` → a patch of a surface for a material model
+   (Chord); `edit` with `set_material {layer, albedo, normal, roughness}`.
+
 ## Cameras
 Standard previz camera (`fov` vertical degrees, `resolution` `[w, h]`) plus
 `reference: {src, opacity, wipe}` — the picture this view must match, laid over

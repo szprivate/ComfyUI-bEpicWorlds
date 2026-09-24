@@ -330,6 +330,10 @@ class WorldStore:
             builder.regenerate_heightmap(scene, self.dir(name), version, seed=op.get("seed"),
                                          roughness=op.get("roughness"), height=op.get("height"))
             return ["terrain", "refcam", "hero", "scene"]
+        if kind == "add_asset":
+            return self._add_asset(name, scene, op, version)
+        if kind == "set_material":
+            return self._set_material(name, scene, op, version)
         if kind == "set_time":
             t = str(op["time"]).lower()
             if t not in specmod.TIMES:
@@ -340,6 +344,89 @@ class WorldStore:
                 env["sun"]["color"] = "#ffb070" if env["sun"]["elevation"] >= 0 else "#8fa6d9"
             return ["env"]
         raise ValueError(f"unknown op '{kind}' — known: {', '.join(OPS)}")
+
+    # ── assets from the picture ──────────────────────────────────────────
+    def _add_asset(self, name, scene, op, version):
+        """A generated model (image-to-3D) placed where the picture shows it.
+
+        op: {glb, texture?, label, bboxes: [[x0, y0, x1, y1], …] (0..1 of the
+        reference) or positions: [[x, y, z], …], height? (metres, overrides
+        the measured one), yaw? (degrees; default: facing the reference camera)}.
+        The mesh is textured from `texture` (the RGBA crop it was made from),
+        normalised to stand on y = 0 one unit tall, copied into the world's
+        assets, and one model item is added per box or position."""
+        from . import assets as assetsmod
+        glb = op.get("glb")
+        if not glb or not os.path.isfile(glb):
+            raise ValueError("add_asset needs `glb`: the generated mesh file")
+        label = safe_name(op.get("label") or "asset").lower()
+        out = os.path.join(self.dir(name), "assets", "models", f"{label}_v{version}.glb")
+        texture = op.get("texture")
+        if texture and os.path.isfile(texture):
+            assetsmod.project_texture(glb, texture, out)
+        else:
+            import shutil
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            shutil.copyfile(glb, out)
+        spots = []
+        for box in op.get("bboxes") or []:
+            loc = assetsmod.locate(scene, [float(v) for v in box])
+            spots.append((loc["position"], loc["height"], loc["yaw"], box))
+        for pos in op.get("positions") or []:
+            spots.append(([float(v) for v in pos][:3], float(op.get("height", 1.0)), float(op.get("yaw", 0.0)), None))
+        if not spots:
+            raise ValueError("add_asset needs `bboxes` (where the picture shows it) or `positions`")
+        taken = {i.get("id") for i in scene["items"]}
+        ids = []
+        for n, (pos, h, yaw, box) in enumerate(spots):
+            h = float(op["height"]) if op.get("height") else h
+            if op.get("yaw") is not None:
+                yaw = float(op["yaw"])
+            iid = f"{label}_{n + 1}"
+            while iid in taken:
+                iid += "_x"
+            taken.add(iid)
+            item = {"id": iid, "kind": "model", "name": f"{label.title()} {n + 1}",
+                    **builder._transform(pos, (0.0, yaw, 0.0), (h, h, h)),
+                    "src": builder.src(out, f"{label}.glb")}
+            item["src"]["format"] = "glb"
+            if box is not None:
+                item["from_picture"] = [round(float(v), 4) for v in box]
+            scene["items"].append(item)
+            ids.append(iid)
+        return ids
+
+    def _set_material(self, name, scene, op, version):
+        """PBR maps from a material model (Chord) onto a terrain layer.
+
+        op: {id (terrain id), layer (0..3), albedo, normal?, roughness?, tile?,
+        normalScale?, baked?}. The files are copied into the world's assets."""
+        import shutil
+        item = self._item(scene, op.get("id") or "terrain")
+        if item.get("kind") != "terrain":
+            raise ValueError(f"'{item.get('id')}' is not a terrain")
+        layer = int(op.get("layer", 0))
+        layers = (item.get("terrain") or {}).get("layers") or []
+        if not 0 <= layer < len(layers):
+            raise ValueError("layer must be 0..3")
+        L = layers[layer]
+        folder = os.path.join(self.dir(name), "assets", "materials")
+        os.makedirs(folder, exist_ok=True)
+        for key, field in (("albedo", "src"), ("normal", "normal"), ("roughness", "rough")):
+            path = op.get(key)
+            if not path:
+                continue
+            if not os.path.isfile(path):
+                raise ValueError(f"no such file for {key}: {path}")
+            dst = os.path.join(folder, f"{item['id']}_{layer}_{key}_v{version}{os.path.splitext(path)[1] or '.png'}")
+            shutil.copyfile(path, dst)
+            L[field] = builder.src(dst)
+        if op.get("albedo"):
+            L["color"] = "#ffffff"
+        for key in ("tile", "normalScale", "baked", "roughness_value"):
+            if op.get(key) is not None:
+                L["roughness" if key == "roughness_value" else key] = float(op[key])
+        return [item["id"]]
 
     # ── feedback ─────────────────────────────────────────────────────────
     def _fb_path(self, name):
@@ -434,6 +521,12 @@ OPS = {
     "regenerate_terrain": "{op, seed?, roughness?, height?} — a new terrain shape.",
     "set_time": "{op, time} — dawn, morning, noon, afternoon, late afternoon, golden hour, "
                 "evening, sunset, dusk, twilight, night.",
+    "add_asset": "{op, glb, texture?, label, bboxes: [[x0,y0,x1,y1],…] (0..1 of the reference; the "
+                 "object is placed where its foot meets the ground, as tall as the box says, facing "
+                 "the camera) or positions: [[x,y,z],…], height?, yaw?} — a generated model "
+                 "(image-to-3D), textured from its crop. Files may be ComfyUI refs {filename, subfolder, type}.",
+    "set_material": "{op, id?: 'terrain', layer: 0..3, albedo, normal?, roughness?, tile?, normalScale?, "
+                    "baked?} — PBR maps (e.g. from Chord) onto a terrain layer.",
 }
 
 

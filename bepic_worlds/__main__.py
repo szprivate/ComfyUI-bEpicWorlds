@@ -36,6 +36,7 @@ def main(argv=None):
     c.add_argument("--fov", type=float, default=50.0)
     c.add_argument("--world-size", type=float, default=240.0)
     c.add_argument("--seed", type=int, default=0)
+    c.add_argument("--pitch", type=float, default=None, help="camera tilt in degrees (from fit_camera)")
     c.add_argument("--overwrite", action="store_true")
     c.add_argument("--no-open", action="store_true")
 
@@ -68,7 +69,7 @@ def main(argv=None):
         if args.cmd == "create":
             out = be.create(args.reference, name=args.name, spec=args.spec or None, depth=args.depth,
                             heightmap=args.heightmap, panorama=args.panorama, fov=args.fov,
-                            world_size=args.world_size, seed=args.seed, overwrite=args.overwrite,
+                            world_size=args.world_size, seed=args.seed, overwrite=args.overwrite, pitch=args.pitch,
                             open_in_viewer=not args.no_open)
         elif args.cmd == "list":
             out = be.list()

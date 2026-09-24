@@ -88,6 +88,32 @@ def view_ref(path):
             "type": "output"}
 
 
+_FILE_KEYS = ("glb", "texture", "albedo", "normal", "roughness", "height", "mask")
+
+
+def resolve_op_files(ops):
+    """Edit operations may name files as ComfyUI does ({filename, subfolder,
+    type}) — the agent gets those back from its runs. Each becomes a path,
+    inside input/output/temp only."""
+    if isinstance(ops, dict):
+        ops = [ops]
+    for op in ops or []:
+        if not isinstance(op, dict):
+            continue
+        for key in _FILE_KEYS:
+            v = op.get(key)
+            if isinstance(v, dict) or (isinstance(v, str) and v):
+                op[key] = resolve_image(v)
+    return ops
+
+
+def _save_to_input(image, subfolder, filename):
+    folder = os.path.join(folder_paths.get_input_directory(), subfolder)
+    os.makedirs(folder, exist_ok=True)
+    image.save(os.path.join(folder, filename))
+    return {"filename": filename, "subfolder": subfolder.replace(os.sep, "/"), "type": "input"}
+
+
 def open_in_viewer(name, version=None, focus=True):
     """Show a world in the bEpic viewer: its own tab, replaced if already open.
     `focus` brings the tab forward; a refresh (pins resolved) leaves the user
@@ -160,7 +186,7 @@ def register():
     async def create(request):
         try:
             d = await _json(request)
-            kwargs = {k: d[k] for k in ("spec", "fov", "world_size", "eye_height", "seed") if d.get(k) is not None}
+            kwargs = {k: d[k] for k in ("spec", "fov", "world_size", "eye_height", "seed", "pitch") if d.get(k) is not None}
             for k in ("depth", "heightmap", "panorama"):
                 if d.get(k):
                     kwargs[k] = resolve_image(d[k])
@@ -176,7 +202,10 @@ def register():
     async def edit(request):
         try:
             d = await _json(request)
-            out = store().edit(d.get("name", ""), d.get("ops"), note=d.get("note", ""))
+            ops = d.get("ops")
+            if isinstance(ops, str):
+                ops = json.loads(ops)
+            out = store().edit(d.get("name", ""), resolve_op_files(ops), note=d.get("note", ""))
             if d.get("open_in_viewer", True):
                 out["viewer"] = open_in_viewer(out["name"])
             return web.json_response(out)
@@ -221,6 +250,100 @@ def register():
                                       "note": "the viewer saves the match as the next version"})
         except FileNotFoundError as e:
             return _err(e, 404)
+        except Exception as e:
+            return _err(e)
+
+    @routes.post("/bepic_worlds/stage_reference")
+    async def stage_reference(request):
+        """Put a world's reference picture where ComfyUI's LoadImage finds it."""
+        try:
+            d = await _json(request)
+            name = store_mod.safe_name(d.get("name", ""))
+            scene = store().load(name)
+            cam = next((i for i in scene["items"] if i.get("id") == "refcam"), None)
+            src = ((cam or {}).get("reference") or {}).get("src", {}).get("path")
+            if not src or not os.path.isfile(src):
+                raise FileNotFoundError("this world has no reference picture")
+            from PIL import Image
+            with Image.open(src) as im:
+                ref = _save_to_input(im.convert("RGB"), "worlds_refs", f"{name}.png")
+            return web.json_response({"reference": ref, "size": list(Image.open(src).size)})
+        except FileNotFoundError as e:
+            return _err(e, 404)
+        except Exception as e:
+            return _err(e)
+
+    @routes.post("/bepic_worlds/object_crops")
+    async def object_crops(request):
+        """SAM3 masks of one label → the objects, best first (whole, unoccluded,
+        big), each with a clean crop for image-to-3D and the RGBA crop that
+        textures the result. Body: {name, label, masks: [ComfyUI refs], limit?}."""
+        try:
+            d = await _json(request)
+            name = store_mod.safe_name(d.get("name", ""))
+            label = store_mod.safe_name(d.get("label") or "object").lower()
+            from .bepic_worlds import assets as assetsmod
+            paths = [resolve_image(m) for m in d.get("masks") or []]
+            found = assetsmod.instances(paths)
+            scene = store().load(name)
+            cam = next((i for i in scene["items"] if i.get("id") == "refcam"), None)
+            ref = ((cam or {}).get("reference") or {}).get("src", {}).get("path")
+            out = []
+            for i, inst in enumerate(found[: int(d.get("limit") or 12)]):
+                entry = {k: inst[k] for k in ("bbox", "area", "solidity", "whole", "clipped", "score")}
+                if i < int(d.get("crops") or 1):
+                    rgb, rgba, _box = assetsmod.object_crop(ref, inst["path"])
+                    entry["crop"] = _save_to_input(rgb, f"worlds_crops/{name}", f"{label}_{i + 1}.png")
+                    entry["texture"] = _save_to_input(rgba, f"worlds_crops/{name}", f"{label}_{i + 1}_rgba.png")
+                try:
+                    entry["placement"] = assetsmod.locate(scene, inst["bbox"])
+                except ValueError as e:
+                    entry["placement"] = {"error": str(e)}
+                out.append(entry)
+            return web.json_response({"label": label, "objects": out})
+        except Exception as e:
+            return _err(e)
+
+    @routes.post("/bepic_worlds/fit_camera")
+    async def fit_camera(request):
+        """The reference camera's tilt, from objects of known height in the
+        picture. Body: {name, objects: [{bbox, height}]}. Changes nothing:
+        rebuild the world with the returned `pitch` (create, overwrite) so
+        floor, depth, lamps and objects all agree."""
+        try:
+            d = await _json(request)
+            name = store_mod.safe_name(d.get("name", ""))
+            meta = store().meta(name)
+            scene = store().load(name)
+            cam = next((i for i in scene["items"] if i.get("id") == "refcam"), {})
+            w, h = cam.get("resolution", [1920, 1080])
+            from .bepic_worlds import assets as assetsmod
+            pitch, each = assetsmod.fit_pitch(d.get("objects") or [], meta.get("fov", cam.get("fov", 50.0)),
+                                              meta.get("eye_height", 1.7), w / max(1, h))
+            before = (meta.get("analysis") or {}).get("pitch")
+            return web.json_response({"pitch": pitch, "per_object": each, "pitch_before": before,
+                                      "horizon": round(0.5 + __import__("math").tan(__import__("math").radians(pitch))
+                                                       / (2 * __import__("math").tan(__import__("math").radians(meta.get("fov", 50.0)) / 2)), 4)})
+        except Exception as e:
+            return _err(e)
+
+    @routes.post("/bepic_worlds/material_crop")
+    async def material_crop(request):
+        """A tileable patch of a surface in the reference, for a material model.
+        Body: {name, box: [x0, y0, x1, y1] (0..1), label?}."""
+        try:
+            d = await _json(request)
+            name = store_mod.safe_name(d.get("name", ""))
+            label = store_mod.safe_name(d.get("label") or "surface").lower()
+            box = [float(v) for v in d.get("box") or []]
+            if len(box) != 4:
+                raise ValueError("box must be [x0, y0, x1, y1] in 0..1")
+            from .bepic_worlds import assets as assetsmod
+            scene = store().load(name)
+            cam = next((i for i in scene["items"] if i.get("id") == "refcam"), None)
+            ref = ((cam or {}).get("reference") or {}).get("src", {}).get("path")
+            patch_im = assetsmod.material_crop(ref, box)
+            return web.json_response({"patch": _save_to_input(patch_im, f"worlds_crops/{name}", f"mat_{label}.png")})
         except Exception as e:
             return _err(e)
 

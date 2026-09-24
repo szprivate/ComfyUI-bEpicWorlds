@@ -111,6 +111,7 @@ from the **spec**: biome, time of day, density, terrain height, what grows.
 
 `GET  /bepic_worlds/info · /list · /world?name=[&version=][&summary=1] · /feedback?name=&status=`
 `POST /bepic_worlds/create · /edit · /revert · /open · /calibrate · /feedback · /feedback/resolve`
+`POST /bepic_worlds/stage_reference · /object_crops · /fit_camera · /material_crop` (real assets from the picture — see SCHEMA.md)
 
 Everything that changes something is POST; worlds live under `output/worlds`
 and are reached by sanitised name only; reference images must be in ComfyUI's

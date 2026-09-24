@@ -51,7 +51,7 @@ def world_schema() -> str:
 def create_world(reference: str, name: str = "world", spec: str = "", depth: str = "",
                  heightmap: str = "", panorama: str = "", fov: float = 50.0,
                  world_size: float = 240.0, seed: int = 0, overwrite: bool = False,
-                 open_in_viewer: bool = True) -> str:
+                 open_in_viewer: bool = True, pitch: float | None = None) -> str:
     """Build a world from a reference image and (by default) open it in the viewer.
 
     reference: path to an image (uploaded to ComfyUI if it is on this machine), or a file
@@ -63,12 +63,13 @@ def create_world(reference: str, name: str = "world", spec: str = "", depth: str
     depth / heightmap / panorama: optional images — a depth map of the reference (adds the
         picture as a 3D hero view), a terrain heightmap, a 360° sky.
     fov: vertical field of view of the reference, degrees. world_size: metres across.
+    pitch: the camera's tilt in degrees, when measured (fit_camera) — overrides the guess.
     Returns a summary: name (may get a suffix if taken), version, items and their ids.
     """
     out = be().create(reference, name=name, spec=spec or None, depth=depth or None,
                       heightmap=heightmap or None, panorama=panorama or None, fov=fov,
                       world_size=world_size, seed=seed, overwrite=overwrite,
-                      open_in_viewer=open_in_viewer)
+                      open_in_viewer=open_in_viewer, pitch=pitch)
     return _dump(out)
 
 
