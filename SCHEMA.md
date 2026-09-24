@@ -104,6 +104,12 @@ it covers).
 `world.feedback` is added when a world is served to the viewer (open notes, as
 pins); it is not stored in `world.json`.
 
+## Matching the reference
+`calibrate_world` / the viewer's **Match** writes these fields and nothing else:
+`env` `render.exposure`, `ambient.intensity`, `sun.intensity`, `fog.density`, and
+each terrain's `terrain.layers.0.baked` — as one `edit` whose note reads
+`matched to the reference: error A → B (N% less); brightness vs picture: top …, middle …, bottom …`.
+
 ## Feedback entries (`feedback.jsonl`)
 ```json
 {"id": "fb_1a2b3c4d", "n": 1, "created": "…", "version": 2, "author": "user",

@@ -143,6 +143,17 @@ def resolve_feedback(name: str, ids: list[str], reply: str = "") -> str:
 
 
 @mcp.tool()
+def calibrate_world(name: str, wait_seconds: float = 60.0) -> str:
+    """Match the world's look to its reference picture, by measurement: the viewer renders the
+    world from the reference camera, compares it region by region with the picture
+    (brightness, colour, contrast) and sets exposure, fill light, sun, fog and each surface's
+    baked light for the least error. Saved as a new version whose note gives the error before
+    and after and the brightness of each band against the picture. Needs the world open in a
+    viewer (it is opened for you); waits up to wait_seconds for the result."""
+    return _dump(be().calibrate(name, wait_seconds))
+
+
+@mcp.tool()
 def open_in_viewer(name: str, version: int = 0) -> str:
     """Open (or refresh) a world's tab in the bEpic viewer. Needs ComfyUI running."""
     return _dump(be().open(name, version or None))

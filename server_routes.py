@@ -206,6 +206,24 @@ def register():
         except Exception as e:
             return _err(e)
 
+    @routes.post("/bepic_worlds/calibrate")
+    async def calibrate(request):
+        """Ask the open viewer to match a world to its reference picture. The
+        measuring is done there (it renders); the result comes back as a new
+        version with the error before and after in its note."""
+        try:
+            d = await _json(request)
+            name = d.get("name", "")
+            before = store().version(name)
+            open_in_viewer(name)
+            PromptServer.instance.send_sync("bepic.world.calibrate", {"name": name})
+            return web.json_response({"requested": name, "version_before": before,
+                                      "note": "the viewer saves the match as the next version"})
+        except FileNotFoundError as e:
+            return _err(e, 404)
+        except Exception as e:
+            return _err(e)
+
     @routes.get("/bepic_worlds/feedback")
     async def feedback_list(request):
         try:

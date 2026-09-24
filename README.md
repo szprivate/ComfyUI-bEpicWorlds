@@ -22,8 +22,8 @@ Three ways in, one library underneath (`bepic_worlds`, numpy + Pillow):
 | **CLI** | agents that run shell commands, scripts | `python -m bepic_worlds …` |
 | **ComfyUI nodes** | workflows | *bEpic World From Reference*, *bEpic World Edit*, *bEpic World Feedback* |
 
-Worlds are **shown** by the bEpic Image Viewer (`ComfyUI-ImageViewer`, branch
-`worlds` for now): walk mode, the reference overlay, and feedback pins live there.
+Worlds are **shown** by the bEpic Image Viewer (`ComfyUI-ImageViewer`,
+master): walk mode, the reference overlay, Match, and feedback pins live there.
 
 ## Install
 
@@ -60,13 +60,21 @@ disk is uploaded to ComfyUI first. Without ComfyUI it falls back to building
 worlds in a local folder (`--root`, or `$BEPIC_WORLDS_ROOT`).
 
 Tools: `world_schema`, `create_world`, `list_worlds`, `describe_world`,
-`get_world_json`, `edit_world`, `revert_world`, `get_feedback` (returns your
-snapshots as images), `resolve_feedback`, `open_in_viewer`.
+`get_world_json`, `edit_world`, `revert_world`, `calibrate_world`, `get_feedback`
+(returns your snapshots as images), `resolve_feedback`, `open_in_viewer`.
+
+`calibrate_world` matches a world's look to its reference by measurement: the
+viewer renders the world from the reference camera (without the picture's own
+depth mesh), compares it with the picture on a 3 x 3 grid — median brightness,
+colour balance, spread — and sets exposure, fill, sun, fog and each surface's
+baked light for the least error. The result is saved as a new version whose
+note gives the error before and after. The same runs from the viewer's
+**Match** button. It needs the world open in a browser (it is opened for you).
 
 ### The loop
 1. You ask the agent for a world ("a misty pine valley like this photo").
 2. It calls `create_world`; the viewer opens a **World: name** tab.
-3. You walk it (**Walk** in the previz toolbar), and press **Feedback** to pin
+3. You walk it (**Walk** in the previz toolbar), and press **Note** to pin
    notes to places: "fewer trees here", "sky too saturated". Each note keeps the
    spot, your view, and a snapshot.
 4. You tell the agent to look; it calls `get_feedback`, sees what you saw,
@@ -82,6 +90,7 @@ python -m bepic_worlds describe valley
 python -m bepic_worlds edit valley '[{"op": "scale_scatter", "factor": 0.5}]' --note "half the trees"
 python -m bepic_worlds feedback valley
 python -m bepic_worlds resolve valley fb_1a2b3c4d --reply "thinned them"
+python -m bepic_worlds calibrate valley          # match the look to the reference (needs the viewer open)
 python -m bepic_worlds schema
 ```
 
@@ -101,7 +110,7 @@ from the **spec**: biome, time of day, density, terrain height, what grows.
 ## Routes (ComfyUI)
 
 `GET  /bepic_worlds/info · /list · /world?name=[&version=][&summary=1] · /feedback?name=&status=`
-`POST /bepic_worlds/create · /edit · /revert · /open · /feedback · /feedback/resolve`
+`POST /bepic_worlds/create · /edit · /revert · /open · /calibrate · /feedback · /feedback/resolve`
 
 Everything that changes something is POST; worlds live under `output/worlds`
 and are reached by sanitised name only; reference images must be in ComfyUI's

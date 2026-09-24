@@ -49,6 +49,7 @@ def main(argv=None):
     rs = sub.add_parser("resolve"); rs.add_argument("name"); rs.add_argument("ids", nargs="+")
     rs.add_argument("--reply", default="")
     o = sub.add_parser("open"); o.add_argument("name"); o.add_argument("--version", type=int)
+    cal = sub.add_parser("calibrate"); cal.add_argument("name"); cal.add_argument("--wait", type=float, default=60.0)
     sub.add_parser("schema")
     sub.add_parser("mcp")
     args = ap.parse_args(argv)
@@ -85,6 +86,8 @@ def main(argv=None):
             out = be.resolve(args.name, args.ids, reply=args.reply)
         elif args.cmd == "open":
             out = be.open(args.name, args.version)
+        elif args.cmd == "calibrate":
+            out = be.calibrate(args.name, args.wait)
     except Exception as e:
         print(json.dumps({"error": str(e), "backend": be.kind}), file=sys.stderr)
         return 1

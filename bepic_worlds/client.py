@@ -136,6 +136,20 @@ class HttpBackend:
     def open(self, name, version=None):
         return self._req("POST", "/bepic_worlds/open", {"name": name, "version": version})
 
+    def calibrate(self, name, wait=60.0):
+        """Have the viewer match the world to its reference; wait for the new
+        version (up to `wait` seconds) and return its history entry."""
+        import time
+        req = self._req("POST", "/bepic_worlds/calibrate", {"name": name})
+        deadline = time.time() + max(0.0, wait)
+        while time.time() < deadline:
+            time.sleep(1.5)
+            d = self.describe(name)
+            if d["version"] > req["version_before"]:
+                return {"matched": True, "version": d["version"], "note": (d.get("history") or [{}])[-1].get("note")}
+        return {"matched": False, "note": "no new version yet — is the world open in a viewer? "
+                                          "(the match runs in the browser)", **req}
+
 
 class LocalBackend:
     kind = "local"
@@ -190,6 +204,9 @@ class LocalBackend:
 
     def open(self, name, version=None):
         return self.http.open(name, version)
+
+    def calibrate(self, name, wait=60.0):
+        return self.http.calibrate(name, wait)
 
     def _try_open(self, name):
         try:
