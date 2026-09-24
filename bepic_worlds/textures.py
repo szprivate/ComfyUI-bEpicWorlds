@@ -31,14 +31,21 @@ def _square(rgb, size):
 
 
 def tileable(rgb, size=512):
-    """`rgb` made to repeat without a visible seam."""
+    """`rgb` made to repeat without a visible seam.
+
+    One axis at a time: blended with a copy shifted half a tile along that
+    axis, taking the copy only near that axis's borders — where its own seam
+    (in its middle) can't show. Doing both axes at once in a square mask left
+    the copy's seam visible as a cross through the tile.
+    """
     a = _square(rgb, size)
-    b = np.roll(np.roll(a, size // 2, axis=0), size // 2, axis=1)
-    y, x = np.mgrid[0:size, 0:size].astype(np.float32) / (size - 1)
-    edge = np.maximum(np.abs(x - 0.5), np.abs(y - 0.5)) * 2        # 0 centre .. 1 border
-    m = np.clip((edge - 0.55) / 0.45, 0, 1)[..., None]
+    t = np.linspace(0.0, 1.0, size, dtype=np.float32)
+    edge = np.abs(t - 0.5) * 2                                  # 0 middle .. 1 border
+    m = np.clip((edge - 0.5) / 0.5, 0, 1)
     m = m * m * (3 - 2 * m)
-    return a * (1 - m) + b * m
+    a = a * (1 - m[None, :, None]) + np.roll(a, size // 2, axis=1) * m[None, :, None]
+    a = a * (1 - m[:, None, None]) + np.roll(a, size // 2, axis=0) * m[:, None, None]
+    return a
 
 
 def flatten_light(rgb, strength=0.8):

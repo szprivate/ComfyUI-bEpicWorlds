@@ -16,8 +16,10 @@ import os
 
 import numpy as np
 
+from . import lights as lightsmod
 from . import reference as ref
 from . import spec as specmod
+from . import surface
 from . import terrain as terr
 from . import textures as tex
 
@@ -54,6 +56,44 @@ def _scale_hex(c, k):
     return ref.hex_of(np.clip(ref.rgb_of(c) * k, 0, 1))
 
 
+def pbr_layer(name, tex_rgb, assets, crop=None, roughness=None, tile=9.0, color="#ffffff", normal_scale=1.0,
+              delight=0.85, baked=0.0):
+    """A terrain layer with PBR maps: the texture without its highlights, a
+    normal map and a roughness map beside it, and the roughness it was read as.
+    `delight` is how much of the highlights come out (a ceiling's brightness is
+    mostly the lamps on it, and it keeps more of it)."""
+    p = surface.pbr_set(tex_rgb, source_region=crop, roughness=roughness, delight_strength=delight)
+    a_path = _save(p["albedo"], os.path.join(assets, f"tex_{name}.png"))
+    n_path = _save(p["normal"], os.path.join(assets, f"tex_{name}_normal.png"))
+    r_path = os.path.join(assets, f"tex_{name}_rough.png")
+    surface.save_gray(p["rough_map"], r_path)
+    return {"name": name, "src": src(a_path), "normal": src(n_path), "rough": src(r_path),
+            "roughness": p["roughness"], "normalScale": float(normal_scale), "color": color, "tile": float(tile),
+            "baked": float(baked)}
+
+
+def light_sources(rgb, analysis):
+    """Where the picture's lights are, across it (u, 0..1): lamps, and the sun
+    when it is in frame. What a floor's reflections are looked for under."""
+    us = [l["u"] for l in lightsmod.find_lamps(rgb, analysis["horizon"])]
+    sun = analysis.get("sun") or {}
+    if sun.get("in_frame"):
+        h, w = rgb.shape[:2]
+        hf = 2 * math.atan(math.tan(math.radians(analysis["fov"]) / 2) * w / h)
+        us.append(0.5 + math.tan(math.radians(sun["azimuth"])) / (2 * math.tan(hf / 2)))
+    return us
+
+
+def render_settings(interior):
+    """How a world is drawn: a tone curve that keeps colours as they are
+    (Khronos PBR Neutral), bloom so lamps and the sun glow, and reflections
+    captured from the world itself at the reference view. `fill` is how much
+    of the hemisphere fill stays once reflections carry light too — more
+    indoors, where lamps light the ceiling sideways and nothing captures it."""
+    return {"tone": "neutral", "exposure": 1.0, "bloom": 0.35 if interior else 0.12,
+            "reflections": "capture", "fill": 0.8 if interior else 0.35}
+
+
 def environment_item(analysis, recipe, panorama_src=None):
     sun = recipe["sun"]
     night = sun["elevation"] < 0
@@ -76,6 +116,7 @@ def environment_item(analysis, recipe, panorama_src=None):
                    "density": float(recipe["fog"])}
     item["ambient"] = {"sky": analysis["sky_top"], "ground": analysis["ground"],
                        "intensity": 0.4 if night else 1.6}
+    item["render"] = render_settings(False)
     return item
 
 
@@ -98,7 +139,7 @@ def scatter_item(entry, index, clear, foliage, rock_color):
     color = entry.get("color") or {
         "pine": _scale_hex(foliage, 0.8), "tree": foliage, "bush": _scale_hex(foliage, 1.1),
         "grass": _scale_hex(foliage, 1.35), "rock": rock_color, "column": "#e6e4df",
-        "model": "#ffffff"}[kind]
+        "lamp": "#fff6e8", "model": "#ffffff"}[kind]
     item = {"id": f"scatter_{kind}" if index == 0 else f"scatter_{kind}_{index}",
             "kind": "scatter", "name": f"{kind.title()}s", **_transform()}
     item["scatter"] = {
@@ -119,6 +160,10 @@ def scatter_item(entry, index, clear, foliage, rock_color):
         item["scatter"]["grid"] = [float(v) for v in entry["grid"]][:2]
     if entry.get("aspect"):
         item["scatter"]["aspect"] = float(entry["aspect"])
+    # Hung this far above the ground (a lamp under a ceiling), and glowing.
+    for key in ("lift", "emissive", "roughness"):
+        if entry.get(key) is not None:
+            item["scatter"][key] = float(entry[key])
     return item
 
 
@@ -262,20 +307,23 @@ def build_world(reference, out_dir, name="world", spec=None, depth=None, heightm
     hm_path = _save(terr.encode_rg16(h), os.path.join(assets, "heightmap_v1.png"))
     _save(h, os.path.join(assets, "heightmap_preview.png"))
 
-    # Ground from the bottom of the picture; a rock layer from the same grain,
-    # pulled toward the picture's own grey; cliffs darker; peaks snow or pale.
-    ground_tex = tex.from_reference(rgb, (0.2, 0.74, 0.8, 1.0))
-    g_path = _save(ground_tex, os.path.join(assets, "tex_ground.png"))
+    # Ground from the bottom of the picture, as glossy as the picture's
+    # reflections say; a rock layer from the same grain, pulled toward the
+    # picture's own grey; cliffs darker; peaks snow or pale.
+    ground_box = (0.2, 0.74, 0.8, 1.0)
+    ground_tex = tex.from_reference(rgb, ground_box)
+    floor_rough, _ = surface.floor_gloss(rgb, analysis["horizon"], light_sources(rgb, analysis))
     grey = float(ref.rgb_of(analysis["ground"]).mean())
     rock_rgb = np.array([grey * 0.95, grey * 0.93, grey * 0.9]) * 0.9 + 0.08
     rock_color = ref.hex_of(rock_rgb)
-    r_path = _save(tex.tinted(ground_tex, rock_rgb, 0.75), os.path.join(assets, "tex_rock.png"))
+    peak = {"name": "peak", "src": None, "color": "#f2f4f7" if recipe["snow"] else _scale_hex(analysis["ground"], 1.25),
+            "tile": 20.0, "roughness": 0.55 if recipe["snow"] else 0.9}
     layers = [
-        {"name": "ground", "src": src(g_path), "color": "#ffffff", "tile": 9.0},
-        {"name": "rock", "src": src(r_path), "color": "#ffffff", "tile": 14.0},
-        {"name": "cliff", "src": None, "color": _scale_hex(rock_color, 0.62), "tile": 20.0},
-        {"name": "peak", "src": None, "color": "#f2f4f7" if recipe["snow"] else _scale_hex(analysis["ground"], 1.25),
-         "tile": 20.0},
+        pbr_layer("ground", ground_tex, assets, roughness=floor_rough, tile=9.0,
+                  normal_scale=round(0.1 + 0.25 * floor_rough, 2)),
+        pbr_layer("rock", tex.tinted(ground_tex, rock_rgb, 0.75), assets, roughness=0.85, tile=14.0, normal_scale=0.8),
+        {"name": "cliff", "src": None, "color": _scale_hex(rock_color, 0.62), "tile": 20.0, "roughness": 0.9},
+        peak,
     ]
 
     spawn_x = (spawn_uv[0] - 0.5) * size
@@ -350,27 +398,30 @@ def build_interior(rgb, analysis, recipe, out_dir, assets, ref_path, dmap, name=
     flat = np.zeros((HEIGHT_RES, HEIGHT_RES), dtype=np.float32)
     hm_path = _save(terr.encode_rg16(flat), os.path.join(assets, "heightmap_v1.png"))
     _save(flat, os.path.join(assets, "heightmap_preview.png"))
-    floor_path = _save(tex.from_reference(rgb, (0.25, 0.8, 0.75, 1.0)), os.path.join(assets, "tex_floor.png"))
     # The ceiling's texture from its brightest open patch — the middle top of
     # a picture is as likely to be a duct or a beam as the ceiling itself.
     top = min(0.35, max(0.12, analysis["horizon"] - 0.12))
     boxes = [(x, y, x + 0.24, y + 0.14) for x in (0.05, 0.25, 0.45, 0.7)
              for y in (0.02, max(0.02, top - 0.14))]
     lum = lambda b: float(tex.crop(rgb, b).mean())
-    ceil_path = _save(tex.from_reference(rgb, max(boxes, key=lum)), os.path.join(assets, "tex_ceiling.png"))
+    ceil_box = max(boxes, key=lum)
+    floor_box = (0.25, 0.8, 0.75, 1.0)
+    floor_rough, _ = surface.floor_gloss(rgb, analysis["horizon"], light_sources(rgb, analysis))
+    # Relief is gentler the glossier the floor: on a near-mirror, small bumps
+    # read as ripples on water.
+    floor_layer = pbr_layer("floor", tex.from_reference(rgb, floor_box), assets, roughness=floor_rough, tile=6.0,
+                            normal_scale=round(0.15 + 0.5 * floor_rough, 2), baked=0.25)
+    ceil_layer = pbr_layer("ceiling", tex.from_reference(rgb, ceil_box), assets, crop=tex.crop(rgb, ceil_box),
+                           tile=8.0, normal_scale=0.5, delight=0.2, baked=0.75)
 
     def plain_layers(first):
-        return [first] + [{"name": n, "src": None, "color": analysis["ground"], "tile": 10.0}
+        return [first] + [{"name": n, "src": None, "color": analysis["ground"], "tile": 10.0, "roughness": 0.85}
                           for n in ("rock", "cliff", "peak")]
 
-    floor = terrain_item(size, 0.0, src(hm_path),
-                         plain_layers({"name": "floor", "src": src(floor_path), "color": "#ffffff", "tile": 6.0}),
-                         False, 0, 0.3)
+    floor = terrain_item(size, 0.0, src(hm_path), plain_layers(floor_layer), False, 0, 0.3)
     floor["name"] = "Floor"
     floor["terrain"]["segments"] = 32
-    ceil = terrain_item(size, 0.0, src(hm_path),
-                        plain_layers({"name": "ceiling", "src": src(ceil_path), "color": "#ffffff", "tile": 8.0}),
-                        False, 0, 0.3)
+    ceil = terrain_item(size, 0.0, src(hm_path), plain_layers(ceil_layer), False, 0, 0.3)
     ceil.update(id="ceiling", name="Ceiling", position=[0.0, round(ceiling, 3), 0.0], rotation=[180.0, 0.0, 0.0])
     ceil["terrain"]["segments"] = 16
     ceil["terrain"]["walkable"] = False
@@ -388,8 +439,26 @@ def build_interior(rgb, analysis, recipe, out_dir, assets, ref_path, dmap, name=
     # shows albedo x light x intensity / pi) that the textures read at about
     # their own brightness — the picture's colours are in them already.
     env["ambient"] = {"sky": "#ebe7df", "ground": "#dcd6ca", "intensity": 4.0}
+    env["render"] = render_settings(True)
 
     items = [env, floor, ceil]
+
+    # The picture's own lamps, where the depth map says they hang.
+    w_px, h_px = analysis["size"]
+    lamp_color = "#fff6e8"
+    if dmap is not None:
+        found = lightsmod.find_lamps(rgb, analysis["horizon"], max_lamps=8)
+        placed = lightsmod.place(found, lambda d: depth_to_z(d, near, far, curve), dmap, fov, w_px / h_px, pitch, eye,
+                                 ceiling_y=ceiling - 0.05)
+        for i, lamp in enumerate(placed):
+            lamp_color = placed[0]["color"]
+            items.append({"id": f"light_{i + 1}", "kind": "light", "name": f"Lamp {i + 1}",
+                          **_transform([lamp["position"][0], min(lamp["position"][1], ceiling - 0.06),
+                                        lamp["position"][2]], (0, lamp["yaw"], 0)),
+                          "light": {"type": "point", "color": lamp["color"], "intensity": 18.0,
+                                    "distance": 14.0, "decay": 2.0, "shadows": False,
+                                    "fixture": {"shape": "tube", "size": [lamp["length"], lamp["width"], 0.05],
+                                                "emissive": 6.0}}})
     # Columns on a grid, as tall as the room — kept out of the part of the
     # room the picture already shows (it has its own), and off the lens.
     light = max(analysis["palette"], key=lambda p: p["lum"])["hex"]
@@ -408,6 +477,11 @@ def build_interior(rgb, analysis, recipe, out_dir, assets, ref_path, dmap, name=
             gx, gz = entry.get("grid") or (8.5, 8.5)
             entry["count"] = max(int(entry.get("count", 0)), int((size / gx + 1) * (size / gz + 1)))
         items.append(scatter_item(entry, i, clear, analysis["foliage"], analysis["ground"]))
+    # Strip lights on the same grid under the rest of the ceiling: they glow
+    # (and bloom); the light itself is the fill and the captured reflections.
+    items.append(scatter_item({"type": "lamp", "count": 2000, "grid": [8.5, 4.25], "scale": [1.0, 1.0],
+                               "layer": -1, "lift": round(ceiling - 0.04, 3), "color": lamp_color,
+                               "emissive": 6.0}, 0, clear, analysis["foliage"], analysis["ground"]))
 
     w, hgt = analysis["size"]
     items.append({"id": "refcam", "kind": "camera", "name": "Reference", **_transform(eye, (pitch, 0, 0)),

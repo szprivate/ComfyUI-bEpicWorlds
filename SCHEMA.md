@@ -35,6 +35,11 @@ scatter on a grid, and overhead light without shadows in place of a sun.
 | `sun.shadows` | true/false |
 | `fog.color`, `fog.density` | exponential fog; 0.002 clear … 0.02 thick |
 | `ambient.sky`, `ambient.ground`, `ambient.intensity` | hemisphere fill light |
+| `render.tone` | tone curve: `neutral` (keeps colours; default for worlds), `aces`, `agx`, `linear` |
+| `render.exposure` | multiplies the viewer's own exposure |
+| `render.bloom` | glow strength around bright things (lamps, the sun), 0 = off |
+| `render.reflections` | `capture`: reflections and image light taken from the world itself at the walk spawn; `off` |
+| `render.fill` | share of the hemisphere fill kept once reflections carry light too (0.35 outdoors, 0.8 indoors) |
 
 ## `terrain` (id `terrain`)
 | field | meaning |
@@ -44,7 +49,7 @@ scatter on a grid, and overhead light without shadows in place of a sun.
 | `terrain.size` | `[x, z]` metres, centred on the item |
 | `terrain.height` | metres at heightmap value 1 |
 | `terrain.segments` | mesh resolution per side (≤ 512) |
-| `terrain.layers[0..3]` | `{name, src?, color, tile}` — ground, rock, cliff, peak; `tile` = metres per texture repeat |
+| `terrain.layers[0..3]` | `{name, src?, color, tile, normal?, rough?, roughness, normalScale, baked}` — ground, rock, cliff, peak; `tile` = metres per texture repeat; PBR: a normal map, a roughness map, the measured roughness (0.02 mirror … 1 matte), relief strength, and `baked` 0..1: how much of the texture's photographed light it keeps as glow |
 | `terrain.rules` | `rockSlope: [from, to]`, `cliffSlope: [from, to]` (degrees), `peak: [from, to]` (0..1 of height) |
 | `terrain.splat` | optional RGBA image: layer weights, overrides `rules` |
 | `terrain.walkable` | `false` for a surface you don't stand on (an interior's ceiling: a terrain turned over, rotation `[180, 0, 0]`) |
@@ -64,13 +69,24 @@ scatter on a grid, and overhead light without shadows in place of a sun.
 | `scatter.clear` | kept empty: circles `{center: [x, z], radius}` and wedges `{wedge: {apex: [x, z], yaw, half, range}}` (a view a picture already covers; yaw 0 = −Z, `half` degrees each side), one or a list |
 | `scatter.grid` | `[dx, dz]` metres: a regular layout instead of random (columns in a hall) |
 | `scatter.aspect` | stretches the height alone (a unit column × the room height) |
+| `scatter.lift` | metres above the ground (lamps hung under a ceiling) |
+| `scatter.emissive` | glow strength (a `lamp`) |
+| `scatter.roughness` | surface roughness, or unset for the type's own |
+
+## `light` (ids `light_*`)
+A point light and its fixture. `light.color`, `light.intensity` (candela, ~18 for a strip light),
+`light.distance` (reach, m), `light.decay` (2 = physical), `light.shadows`,
+`light.fixture` `{shape: tube|panel|none, size: [length, width, thickness], emissive}`.
+Interiors get one per lamp found in the picture, hung where the ray through it meets the ceiling,
+plus a `scatter_lamp` grid of glowing fixtures under the rest of the ceiling.
 
 ## `depthmesh` (id `hero`)
 The reference picture pushed out by its depth map, drawn unlit, standing where
 the reference camera stands.
 `depthmesh.src` (picture), `depthmesh.depth` (map: bright = near unless `invert`),
 `fov` (vertical, degrees), `near`, `far` (metres the map's ends mean),
-`cut` (tear threshold at depth edges, 0.05–0.3), `segments`.
+`cut` (tear threshold at depth edges, 0.05–0.3), `segments`, `encoding` (`rg16` 16-bit, or `gray`),
+`curve` (optional `[[d, metres], …]`, interpolated in inverse depth, where the map isn't one straight line).
 
 ## Cameras
 Standard previz camera (`fov` vertical degrees, `resolution` `[w, h]`) plus

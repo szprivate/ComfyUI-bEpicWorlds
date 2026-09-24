@@ -29,7 +29,7 @@ import time
 from . import builder
 from . import spec as specmod
 
-KINDS = {"environment", "terrain", "scatter", "depthmesh", "camera", "model",
+KINDS = {"environment", "terrain", "scatter", "depthmesh", "light", "camera", "model",
          "primitive", "imageplane", "group"}
 _NAME_RE = re.compile(r"[^A-Za-z0-9_-]+")
 

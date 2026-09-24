@@ -87,7 +87,7 @@ TIMES = {"dawn": 5, "sunrise": 5, "morning": 25, "noon": 65, "midday": 65,
          "afternoon": 45, "late afternoon": 25, "golden hour": 10, "evening": 12,
          "sunset": 4, "dusk": 2, "twilight": 1, "night": -8}
 
-SCATTER_TYPES = ("pine", "tree", "bush", "grass", "rock", "column", "model")
+SCATTER_TYPES = ("pine", "tree", "bush", "grass", "rock", "column", "lamp", "model")
 
 
 def parse(spec):
