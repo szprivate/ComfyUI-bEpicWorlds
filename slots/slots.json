@@ -1,0 +1,146 @@
+{
+ "_about": "A slot is one generative step of world building. Each is filled by a ComfyUI workflow in API format whose nodes are titled for it: 'IN:<name>' on a LoadImage takes an input image, 'IN:<name>.<field>' sets that input of that node (text, seed, denoise \u2026; several nodes may share a name), 'OUT:<name>' on a save node (SaveImage, SaveGLB \u2026) is an output. Any workflow titled this way can fill a slot \u2014 these files, a template from the agent's library, or a new one.",
+ "depth": {
+  "about": "Depth for a new world: a 16-bit map, bright = near, the size of the picture.",
+  "inputs": {
+   "image": "the reference picture"
+  },
+  "outputs": {
+   "depth": "16-bit PNG"
+  },
+  "default": "depth_da2_16bit",
+  "templates": {
+   "depth_da2_16bit": {
+    "about": "Depth Anything V2 Large, kept in float (local)."
+   },
+   "depth_sharp_metric": {
+    "about": "Apple SHARP metric depth, inverted and resized (local). Sharper edges; 'focal_length_mm' is the 35 mm-equivalent lens."
+   }
+  }
+ },
+ "segment": {
+  "about": "Masks of what a prompt names in a picture.",
+  "inputs": {
+   "image": "picture",
+   "prompt": "what to find; 'label:N' = up to N instances",
+   "individual": "one mask per instance (true) or one for all (false)"
+  },
+  "outputs": {
+   "masks": "mask images"
+  },
+  "default": "segment_sam3",
+  "templates": {
+   "segment_sam3": {
+    "about": "SAM 3.1 (local)."
+   }
+  }
+ },
+ "image_to_3d": {
+  "about": "A mesh from a picture of one object on a plain background.",
+  "inputs": {
+   "image": "object crop",
+   "seed": "variant"
+  },
+  "outputs": {
+   "mesh": "GLB"
+  },
+  "default": "i23d_hunyuan21",
+  "templates": {
+   "i23d_hunyuan21": {
+    "about": "Hunyuan3D 2.1, shape only; textured from the picture afterwards (local, ~1 min).",
+    "textured": false
+   },
+   "i23d_meshy": {
+    "about": "Meshy image-to-3D with PBR textures, remeshed to 30k triangles (API, costs credits, ~2-4 min).",
+    "textured": true
+   }
+  }
+ },
+ "texture_refine": {
+  "about": "A patch of the picture made into a clean, detailed, tileable texture (img2img).",
+  "inputs": {
+   "image": "patch",
+   "prompt": "what the surface is",
+   "denoise": "how far from the photo (0.3-0.6)"
+  },
+  "outputs": {
+   "texture": "tileable image"
+  },
+  "default": "texture_refine_zimage",
+  "templates": {
+   "texture_refine_zimage": {
+    "about": "Z-Image Turbo img2img, seamless sampling (local, ~10 s)."
+   }
+  }
+ },
+ "texture_generate": {
+  "about": "A tileable texture from words alone.",
+  "inputs": {
+   "prompt": "the surface"
+  },
+  "outputs": {
+   "texture": "tileable image"
+  },
+  "default": "texture_generate_zimage",
+  "templates": {
+   "texture_generate_zimage": {
+    "about": "Z-Image Turbo, seamless sampling (local, ~10 s)."
+   }
+  }
+ },
+ "material": {
+  "about": "PBR maps from a tileable colour texture; the maps tile too.",
+  "inputs": {
+   "image": "texture"
+  },
+  "outputs": {
+   "albedo": "",
+   "normal": "",
+   "roughness": "",
+   "metalness": ""
+  },
+  "default": "material_chord",
+  "templates": {
+   "material_chord": {
+    "about": "Wrap-padded 4x upscale + Chord (local)."
+   }
+  }
+ },
+ "sky": {
+  "about": "A 2:1 equirectangular sky panorama that wraps sideways.",
+  "inputs": {
+   "prompt": "the sky"
+  },
+  "outputs": {
+   "panorama": "2048x1024 image"
+  },
+  "default": "sky_zimage_pano",
+  "templates": {
+   "sky_zimage_pano": {
+    "about": "Z-Image Turbo 2:1, sampled to wrap sideways (local). Not a true equirectangular projection; fine for skies."
+   },
+   "sky_qwen360": {
+    "about": "Qwen-Image 2512 with the 360 LoRA: true equirectangular (local).",
+    "requires": [
+     "loras/qwen-360-diffusion-2512-int8-bf16-v2.safetensors (huggingface.co/ProGamerGov/qwen-360-diffusion)"
+    ]
+   }
+  }
+ },
+ "object_image": {
+  "about": "A picture of one object from words, on a clean background, with its mask \u2014 for image_to_3d.",
+  "inputs": {
+   "prompt": "the object"
+  },
+  "outputs": {
+   "image": "picture",
+   "mask": "object mask"
+  },
+  "default": "object_zimage_rmbg",
+  "templates": {
+   "object_zimage_rmbg": {
+    "about": "Z-Image Turbo + RMBG-2.0 (local)."
+   }
+  }
+ }
+}

@@ -16,6 +16,7 @@ from aiohttp import web
 from server import PromptServer
 
 from .bepic_worlds import store as store_mod
+from .bepic_worlds import slots as slots_mod
 from .bepic_worlds.store import WorldStore
 
 _store = None
@@ -88,7 +89,7 @@ def view_ref(path):
             "type": "output"}
 
 
-_FILE_KEYS = ("glb", "texture", "albedo", "normal", "roughness", "height", "mask")
+_FILE_KEYS = ("glb", "texture", "albedo", "normal", "roughness", "height", "mask", "panorama")
 
 
 def resolve_op_files(ops):
@@ -352,6 +353,52 @@ def register():
         except Exception as e:
             return _err(e)
 
+    @routes.get("/bepic_worlds/slots")
+    async def slots(_request):
+        """The generative steps of world building and the workflows that fill
+        them (slots/slots.json), with the choice made for each."""
+        try:
+            return web.json_response({"slots": slots_mod.manifest(), "choices": slots_mod.choices(store().root)})
+        except Exception as e:
+            return _err(e)
+
+    @routes.get("/bepic_worlds/slot_template")
+    async def slot_template(request):
+        """One of the pack's slot workflows (API format), by name."""
+        try:
+            return web.json_response(slots_mod.template(request.query.get("name", "")))
+        except FileNotFoundError as e:
+            return _err(e, 404)
+        except Exception as e:
+            return _err(e)
+
+    @routes.post("/bepic_worlds/slots")
+    async def choose_slot(request):
+        """Choose the workflow for a slot: {slot, template} — a slot workflow
+        of this pack, or the name of a template from the agent's library (it
+        resolves those itself). An empty template goes back to the default."""
+        try:
+            d = await _json(request)
+            return web.json_response({"choices": slots_mod.choose(store().root, d.get("slot", ""), d.get("template") or "")})
+        except Exception as e:
+            return _err(e)
+
+    @routes.post("/bepic_worlds/cutout")
+    async def cutout(request):
+        """An object picture + its mask → the crop an image-to-3D model wants
+        (on white, square) and the RGBA picture that textures the mesh.
+        Body: {name, image, mask, label?}."""
+        try:
+            d = await _json(request)
+            name = store_mod.safe_name(d.get("name", "") or "props")
+            label = store_mod.safe_name(d.get("label") or "object").lower()
+            from .bepic_worlds import assets as assetsmod
+            rgb, rgba, _box = assetsmod.object_crop(resolve_image(d.get("image")), resolve_image(d.get("mask")))
+            return web.json_response({"crop": _save_to_input(rgb, f"worlds_crops/{name}", f"{label}.png"),
+                                      "texture": _save_to_input(rgba, f"worlds_crops/{name}", f"{label}_rgba.png")})
+        except Exception as e:
+            return _err(e)
+
     @routes.post("/bepic_worlds/material_crop")
     async def material_crop(request):
         """A tileable patch of a surface in the reference, for a material model.
@@ -362,8 +409,11 @@ def register():
             name = store_mod.safe_name(d.get("name", ""))
             label = store_mod.safe_name(d.get("label") or "surface").lower()
             from .bepic_worlds import assets as assetsmod
+            scene = store().load(name)
+            cam = next((i for i in scene["items"] if i.get("id") == "refcam"), None)
+            ref = ((cam or {}).get("reference") or {}).get("src", {}).get("path")
             if d.get("masks") and not d.get("box"):
-                box = assetsmod.surface_box([resolve_image(m) for m in d["masks"]])
+                box = assetsmod.surface_box([resolve_image(m) for m in d["masks"]], reference=ref)
             else:
                 box = [float(v) for v in d.get("box") or []]
             if len(box) != 4:

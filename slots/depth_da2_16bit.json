@@ -1,0 +1,26 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "example.png"
+  },
+  "_meta": {
+   "title": "IN:image"
+  }
+ },
+ "2": {
+  "class_type": "bEpicWorldDepth",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "ckpt_name": "depth_anything_v2_vitl.pth",
+   "input_size": 770,
+   "filename_prefix": "depth"
+  },
+  "_meta": {
+   "title": "OUT:depth"
+  }
+ }
+}

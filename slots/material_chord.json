@@ -1,0 +1,181 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "example.png"
+  },
+  "_meta": {
+   "title": "IN:image"
+  }
+ },
+ "2": {
+  "class_type": "ImageScale",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "upscale_method": "lanczos",
+   "width": 768,
+   "height": 768,
+   "crop": "disabled"
+  }
+ },
+ "3": {
+  "class_type": "bEpicWrapPad",
+  "inputs": {
+   "image": [
+    "2",
+    0
+   ],
+   "pad": 96
+  }
+ },
+ "4": {
+  "class_type": "UpscaleModelLoader",
+  "inputs": {
+   "model_name": "4x-ClearRealityV1.pth"
+  }
+ },
+ "5": {
+  "class_type": "ImageUpscaleWithModel",
+  "inputs": {
+   "upscale_model": [
+    "4",
+    0
+   ],
+   "image": [
+    "3",
+    0
+   ]
+  }
+ },
+ "6": {
+  "class_type": "ImageScale",
+  "inputs": {
+   "image": [
+    "5",
+    0
+   ],
+   "upscale_method": "lanczos",
+   "width": 1280,
+   "height": 1280,
+   "crop": "disabled"
+  }
+ },
+ "7": {
+  "class_type": "ChordLoadModel",
+  "inputs": {
+   "ckpt_name": "CHORD\\chord_v1.safetensors"
+  }
+ },
+ "8": {
+  "class_type": "ChordMaterialEstimation",
+  "inputs": {
+   "chord_model": [
+    "7",
+    0
+   ],
+   "image": [
+    "6",
+    0
+   ]
+  }
+ },
+ "10": {
+  "class_type": "bEpicUnpad",
+  "inputs": {
+   "image": [
+    "8",
+    0
+   ],
+   "pad": 128,
+   "padded_size": 1280
+  }
+ },
+ "20": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "10",
+    0
+   ],
+   "filename_prefix": "worlds/slot"
+  },
+  "_meta": {
+   "title": "OUT:albedo"
+  }
+ },
+ "11": {
+  "class_type": "bEpicUnpad",
+  "inputs": {
+   "image": [
+    "8",
+    1
+   ],
+   "pad": 128,
+   "padded_size": 1280
+  }
+ },
+ "21": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "11",
+    0
+   ],
+   "filename_prefix": "worlds/slot"
+  },
+  "_meta": {
+   "title": "OUT:normal"
+  }
+ },
+ "12": {
+  "class_type": "bEpicUnpad",
+  "inputs": {
+   "image": [
+    "8",
+    2
+   ],
+   "pad": 128,
+   "padded_size": 1280
+  }
+ },
+ "22": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "12",
+    0
+   ],
+   "filename_prefix": "worlds/slot"
+  },
+  "_meta": {
+   "title": "OUT:roughness"
+  }
+ },
+ "13": {
+  "class_type": "bEpicUnpad",
+  "inputs": {
+   "image": [
+    "8",
+    3
+   ],
+   "pad": 128,
+   "padded_size": 1280
+  }
+ },
+ "23": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "13",
+    0
+   ],
+   "filename_prefix": "worlds/slot"
+  },
+  "_meta": {
+   "title": "OUT:metalness"
+  }
+ }
+}

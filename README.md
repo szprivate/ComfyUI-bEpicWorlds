@@ -20,7 +20,7 @@ Three ways in, one library underneath (`bepic_worlds`, numpy + Pillow):
 |---|---|---|
 | **MCP server** | agents (agentY, Claude Code, any MCP client) | `python -m bepic_worlds.mcp_server` |
 | **CLI** | agents that run shell commands, scripts | `python -m bepic_worlds …` |
-| **ComfyUI nodes** | workflows | *bEpic World From Reference*, *bEpic World Edit*, *bEpic World Feedback*, *bEpic World Depth (16-bit)* |
+| **ComfyUI nodes** | workflows | *bEpic World From Reference*, *bEpic World Edit*, *bEpic World Feedback*, *bEpic World Depth (16-bit)*, *bEpic Save Depth (16-bit)*, *bEpic Seamless Model*, *bEpic Seamless VAE Decode*, *bEpic Wrap Pad*, *bEpic Unpad* |
 
 Worlds are **shown** by the bEpic Image Viewer (`ComfyUI-ImageViewer`,
 master): walk mode, the reference overlay, Match, and feedback pins live there.
@@ -111,11 +111,20 @@ from the **spec**: biome, time of day, density, terrain height, what grows.
 
 `GET  /bepic_worlds/info · /list · /world?name=[&version=][&summary=1] · /feedback?name=&status=`
 `POST /bepic_worlds/create · /rebuild · /edit · /revert · /open · /calibrate · /feedback · /feedback/resolve`
-`POST /bepic_worlds/stage_reference · /object_crops · /fit_camera · /material_crop` (real assets from the picture — see SCHEMA.md)
+`POST /bepic_worlds/stage_reference · /object_crops · /fit_camera · /material_crop · /cutout · /slots` (real assets — see SCHEMA.md) · `GET /bepic_worlds/slots · /slot_template?name=`
 
 Everything that changes something is POST; worlds live under `output/worlds`
 and are reached by sanitised name only; reference images must be in ComfyUI's
 input, output or temp folder; no route starts a process.
+
+## Generative steps are ComfyUI workflows
+
+Depth, segmentation, image → 3D, texture refinement and generation, PBR
+materials, skies and object pictures are each a **slot** filled by a ComfyUI
+workflow in `slots/` (Depth Anything / SHARP, SAM3, Hunyuan3D / Meshy, Z-Image,
+Chord, Qwen-Image 360). Swap any of them for another workflow — yours, or a
+template from your agent's library — through `POST /bepic_worlds/slots`. Textures
+come out tileable: see *Generative steps: slots* in [SCHEMA.md](SCHEMA.md).
 
 ## agentY
 

@@ -1,0 +1,52 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "example.png"
+  },
+  "_meta": {
+   "title": "IN:image"
+  }
+ },
+ "2": {
+  "class_type": "LoadSharpModel",
+  "inputs": {
+   "precision": "auto"
+  }
+ },
+ "3": {
+  "class_type": "SharpPredictMetricDepth",
+  "inputs": {
+   "model": [
+    "2",
+    0
+   ],
+   "image": [
+    "1",
+    0
+   ],
+   "focal_length_mm": 30.0
+  },
+  "_meta": {
+   "title": "IN:focal_length_mm.focal_length_mm"
+  }
+ },
+ "4": {
+  "class_type": "bEpicSaveDepth16",
+  "inputs": {
+   "depth": [
+    "3",
+    0
+   ],
+   "kind": "metric distance (metres)",
+   "filename_prefix": "depth",
+   "match_size_of": [
+    "1",
+    0
+   ]
+  },
+  "_meta": {
+   "title": "OUT:depth"
+  }
+ }
+}

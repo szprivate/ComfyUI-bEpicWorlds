@@ -1,0 +1,48 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "example.png"
+  },
+  "_meta": {
+   "title": "IN:image"
+  }
+ },
+ "2": {
+  "class_type": "MeshyImageToModelNode",
+  "inputs": {
+   "model": "latest",
+   "image": [
+    "1",
+    0
+   ],
+   "should_remesh": "true",
+   "should_remesh.topology": "triangle",
+   "should_remesh.target_polycount": 30000,
+   "symmetry_mode": "auto",
+   "should_texture": "true",
+   "should_texture.enable_pbr": true,
+   "should_texture.texture_prompt": "",
+   "should_texture.texture_resolution": "2k",
+   "ultra_mode": false,
+   "pose_mode": "",
+   "seed": 7
+  },
+  "_meta": {
+   "title": "IN:seed.seed"
+  }
+ },
+ "3": {
+  "class_type": "SaveGLB",
+  "inputs": {
+   "mesh": [
+    "2",
+    2
+   ],
+   "filename_prefix": "worlds/slot"
+  },
+  "_meta": {
+   "title": "OUT:mesh"
+  }
+ }
+}

@@ -21,6 +21,7 @@ by its fixed id and says what to change.
 import base64
 import copy
 import json
+import math
 import os
 import re
 import secrets
@@ -358,6 +359,8 @@ class WorldStore:
             return self._add_asset(name, scene, op, version)
         if kind == "set_material":
             return self._set_material(name, scene, op, version)
+        if kind == "set_sky":
+            return self._set_sky(name, scene, op, version)
         if kind == "set_time":
             t = str(op["time"]).lower()
             if t not in specmod.TIMES:
@@ -373,12 +376,19 @@ class WorldStore:
     def _add_asset(self, name, scene, op, version):
         """A generated model (image-to-3D) placed where the picture shows it.
 
-        op: {glb, texture?, label, bboxes: [[x0, y0, x1, y1], …] (0..1 of the
-        reference) or positions: [[x, y, z], …], height? (metres, overrides
-        the measured one), yaw? (degrees; default: facing the reference camera)}.
-        The mesh is textured from `texture` (the RGBA crop it was made from),
-        normalised to stand on y = 0 one unit tall, copied into the world's
-        assets, and one model item is added per box or position."""
+        op: {glb, texture?, textured?, label, and where:
+          bboxes: [[x0, y0, x1, y1], …] (0..1 of the reference: standing where
+            the picture shows it, as tall as it looks, facing the camera), or
+          positions: [[x, z] or [x, y, z], …] (on the ground when y is left out), or
+          scatter: {count, center: [x, z], radius, seed?, spacing?} (on the ground,
+            no closer than `spacing` metres),
+        height? (metres; needed for positions and scatter), yaw? (degrees; else
+        facing the camera for boxes, random for positions and scatter)}.
+        A mesh that comes untextured is textured from `texture` (the RGBA
+        picture it was made from); one that comes `textured` (Meshy, …) keeps
+        its materials. Either way it is normalised to stand on y = 0 one unit
+        tall and copied into the world's assets; one model item per spot."""
+        import random
         from . import assets as assetsmod
         glb = op.get("glb")
         if not glb or not os.path.isfile(glb):
@@ -386,24 +396,41 @@ class WorldStore:
         label = safe_name(op.get("label") or "asset").lower()
         out = os.path.join(self.dir(name), "assets", "models", f"{label}_v{version}.glb")
         texture = op.get("texture")
-        if texture and os.path.isfile(texture):
+        if op.get("textured"):
+            assetsmod.normalize_glb(glb, out)
+        elif texture and os.path.isfile(texture):
             assetsmod.project_texture(glb, texture, out)
         else:
-            import shutil
-            os.makedirs(os.path.dirname(out), exist_ok=True)
-            shutil.copyfile(glb, out)
+            assetsmod.normalize_glb(glb, out)
+        rng = random.Random(op.get("seed", 0))
+        height = float(op.get("height") or 1.0)
         spots = []
         for box in op.get("bboxes") or []:
             loc = assetsmod.locate(scene, [float(v) for v in box])
             spots.append((loc["position"], loc["height"], loc["yaw"], box))
         for pos in op.get("positions") or []:
-            spots.append(([float(v) for v in pos][:3], float(op.get("height", 1.0)), float(op.get("yaw", 0.0)), None))
+            p = [float(v) for v in pos]
+            p = [p[0], assetsmod._ground_y(scene, p[0], p[1]), p[1]] if len(p) == 2 else p[:3]
+            spots.append((p, height, rng.uniform(0, 360), None))
+        sc = op.get("scatter")
+        if sc:
+            cx, cz = [float(v) for v in sc.get("center", [0, 0])]
+            radius, spacing = float(sc.get("radius", 10)), float(sc.get("spacing", height))
+            placed = []
+            for _ in range(int(sc.get("count", 5)) * 30):
+                if len(placed) >= int(sc.get("count", 5)):
+                    break
+                a, r = rng.uniform(0, 6.2832), radius * rng.random() ** 0.5
+                x, z = cx + r * math.cos(a), cz + r * math.sin(a)
+                if all((x - px) ** 2 + (z - pz) ** 2 >= spacing ** 2 for px, pz in placed):
+                    placed.append((x, z))
+                    spots.append(([x, assetsmod._ground_y(scene, x, z), z], height, rng.uniform(0, 360), None))
         if not spots:
-            raise ValueError("add_asset needs `bboxes` (where the picture shows it) or `positions`")
+            raise ValueError("add_asset needs `bboxes` (where the picture shows it), `positions` or `scatter`")
         taken = {i.get("id") for i in scene["items"]}
         ids = []
         for n, (pos, h, yaw, box) in enumerate(spots):
-            h = float(op["height"]) if op.get("height") else h
+            h = float(op["height"]) if op.get("height") and box is not None else h
             if op.get("yaw") is not None:
                 yaw = float(op["yaw"])
             iid = f"{label}_{n + 1}"
@@ -419,6 +446,28 @@ class WorldStore:
             scene["items"].append(item)
             ids.append(iid)
         return ids
+
+    def _set_sky(self, name, scene, op, version):
+        """A panorama for the sky: op {panorama (2:1 image), horizon? (0..1:
+        the row its horizon is on; found when left out), level? (default
+        true: move the horizon to the middle row, as equirectangular needs)}."""
+        from PIL import Image
+        from . import assets as assetsmod
+        pano = op.get("panorama")
+        if not pano or not os.path.isfile(pano):
+            raise ValueError("set_sky needs `panorama`: a 2:1 equirectangular image")
+        env = self._item(scene, "env")
+        dst = os.path.join(self.dir(name), "assets", "sky", f"sky_v{version}.png")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with Image.open(pano) as im:
+            im = im.convert("RGB")
+            if op.get("level", True):
+                im, _h = assetsmod.level_horizon(im, op.get("horizon"))
+            im.save(dst)
+        sky = env.setdefault("sky", {})
+        sky["mode"] = "panorama"
+        sky["src"] = builder.src(dst)
+        return ["env"]
 
     def _set_material(self, name, scene, op, version):
         """PBR maps from a material model (Chord) onto a terrain layer.
@@ -447,6 +496,8 @@ class WorldStore:
             L[field] = builder.src(dst)
         if op.get("albedo"):
             L["color"] = "#ffffff"
+        if op.get("description"):
+            L["description"] = str(op["description"])[:400]
         for key in ("tile", "normalScale", "baked", "roughness_value"):
             if op.get(key) is not None:
                 L["roughness" if key == "roughness_value" else key] = float(op[key])
@@ -545,12 +596,15 @@ OPS = {
     "regenerate_terrain": "{op, seed?, roughness?, height?} — a new terrain shape.",
     "set_time": "{op, time} — dawn, morning, noon, afternoon, late afternoon, golden hour, "
                 "evening, sunset, dusk, twilight, night.",
-    "add_asset": "{op, glb, texture?, label, bboxes: [[x0,y0,x1,y1],…] (0..1 of the reference; the "
-                 "object is placed where its foot meets the ground, as tall as the box says, facing "
-                 "the camera) or positions: [[x,y,z],…], height?, yaw?} — a generated model "
-                 "(image-to-3D), textured from its crop. Files may be ComfyUI refs {filename, subfolder, type}.",
+    "add_asset": "{op, glb, texture?, textured?, label, bboxes: [[x0,y0,x1,y1],…] (0..1 of the reference; "
+                 "placed where its foot meets the ground, as tall as the box says, facing the camera) | "
+                 "positions: [[x,z] or [x,y,z],…] | scatter: {count, center:[x,z], radius, spacing?, seed?}, "
+                 "height? (metres, for positions/scatter), yaw?} — a generated model (image-to-3D), textured "
+                 "from its picture unless it comes textured. Files may be ComfyUI refs {filename, subfolder, type}.",
     "set_material": "{op, id?: 'terrain', layer: 0..3, albedo, normal?, roughness?, tile?, normalScale?, "
-                    "baked?} — PBR maps (e.g. from Chord) onto a terrain layer.",
+                    "baked?, description?} — PBR maps (e.g. from Chord) onto a terrain layer.",
+    "set_sky": "{op, panorama, horizon?, level?} — a 2:1 sky panorama (the sky slot makes one); its "
+               "horizon is moved to the middle row unless level is false.",
 }
 
 

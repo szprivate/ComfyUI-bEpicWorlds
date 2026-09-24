@@ -114,11 +114,13 @@ def material_crop(reference, box, size=768):
     return to_pil(tex.from_reference(load_rgb(reference), box, size=size))
 
 
-def surface_box(mask_paths, prefer_near=True):
-    """Where to cut a material patch from a surface SAM3 found: the biggest
-    square lying wholly inside the mask (its largest piece), favouring the
-    bottom of the picture — the near ground, where the texture is sharpest.
-    Returns [x0, y0, x1, y1] in 0..1."""
+def surface_box(mask_paths, prefer_near=True, reference=None):
+    """Where to cut a material patch from a surface SAM3 found: a square lying
+    wholly inside the mask (its largest piece), big, near the bottom of the
+    picture (the near ground, where the texture is sharpest) and — when the
+    `reference` picture is given — plain: of the spots nearly as good, the one
+    with the least contrast, so a painted line or a drain doesn't become the
+    material. Returns [x0, y0, x1, y1] in 0..1."""
     from scipy import ndimage
     m = None
     for p in mask_paths:
@@ -131,6 +133,22 @@ def surface_box(mask_paths, prefer_near=True):
     dist = ndimage.distance_transform_edt(np.pad(m, 1))[1:-1, 1:-1]
     score = dist * ((0.5 + np.arange(h, dtype=np.float32)[:, None] / h) if prefer_near else 1.0)
     y, x = np.unravel_index(int(np.argmax(score)), score.shape)
+    if reference is not None:
+        lum = load_rgb(reference).mean(axis=2)
+        if lum.shape != m.shape:
+            lum = np.asarray(Image.fromarray((lum * 255).astype(np.uint8)).resize((w, h), Image.BILINEAR),
+                             dtype=np.float32) / 255
+        good = score >= 0.7 * float(score[y, x])
+        ys, xs = np.nonzero(good)
+        step = max(1, len(ys) // 400)
+        best = None
+        for cy, cx in zip(ys[::step], xs[::step]):
+            r = max(4, int(dist[cy, cx] * 0.7))
+            p = lum[max(0, cy - r):cy + r:2, max(0, cx - r):cx + r:2]
+            flat = float(p.std()) / (0.5 + score[cy, cx] / score[y, x])   # plain, and still big and near
+            if best is None or flat < best[0]:
+                best = (flat, cy, cx)
+        _, y, x = best
     half = max(4.0, float(dist[y, x]) * 0.7)        # a square inside the clear disc
     box = [(x - half) / w, (y - half) / h, (x + half) / w, (y + half) / h]
     return [round(float(min(1.0, max(0.0, v))), 4) for v in box]
@@ -284,6 +302,56 @@ def fit_pitch(objects, fov, eye_height=1.7, aspect=1.5):
 
 
 # ── the photo's pixels on the mesh ───────────────────────────────────────────
+
+def find_horizon(img):
+    """The row (0..1 from the top) where a panorama's sky meets the ground:
+    where brightness falls most steeply going down (the sky is brighter than
+    the land under it), looked for between 30 % and 95 % of the height; the
+    steepest change either way when nothing falls clearly."""
+    a = np.asarray(img.convert("L").resize((256, 256)), dtype=np.float32)
+    rows = np.convolve(a.mean(axis=1), np.ones(5) / 5, mode="same")
+    drop = rows[:-1] - rows[1:]
+    lo, hi = int(0.3 * 255), int(0.95 * 255)
+    seg = drop[lo:hi] if drop[lo:hi].max() > 2.0 else np.abs(drop[lo:hi])
+    return (lo + int(np.argmax(seg)) + 0.5) / 256
+
+
+def level_horizon(img, horizon=None, tolerance=0.03):
+    """A panorama whose horizon isn't on its middle row — what an image model
+    makes without a 360 LoRA — remapped so it is, as an equirectangular sky
+    must be: the sky above is stretched over the upper half, the ground below
+    over the lower. Returns (image, horizon row it had)."""
+    h = find_horizon(img) if horizon is None else float(horizon)
+    if abs(h - 0.5) <= tolerance:
+        return img, h
+    W, H = img.size
+    y = np.arange(H, dtype=np.float32) / H
+    src = np.where(y < 0.5, y / 0.5 * h, h + (y - 0.5) / 0.5 * (1 - h))
+    a = np.asarray(img.convert("RGB"), dtype=np.float32)
+    idx = np.clip(src * H, 0, H - 1)
+    i0 = np.floor(idx).astype(int)
+    i1 = np.minimum(i0 + 1, H - 1)
+    f = (idx - i0)[:, None, None]
+    out = a[i0] * (1 - f) + a[i1] * f
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB"), h
+
+
+def normalize_glb(glb_in, glb_out):
+    """A mesh that brings its own materials (Meshy, …) or none: only moved to
+    stand on y = 0, centred, one unit tall. Its textures stay untouched."""
+    import trimesh
+    scene = trimesh.load(glb_in, force="scene")
+    lo, hi = scene.bounds
+    size = hi - lo
+    s = 1.0 / max(float(size[1]), 1e-6)
+    t = np.eye(4)
+    t[:3, :3] *= s
+    t[:3, 3] = -np.array([(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2]) * s
+    scene.apply_transform(t)
+    os.makedirs(os.path.dirname(os.path.abspath(glb_out)), exist_ok=True)
+    scene.export(glb_out)
+    return [round(float(x) * s, 4) for x in size]
+
 
 def decimate(vertices, faces, max_faces=40000):
     """Fewer triangles by vertex clustering: vertices sharing a grid cell

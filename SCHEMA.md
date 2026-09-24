@@ -95,26 +95,61 @@ y = 0 and textured from the object's crop), `scale` = its height in metres,
 `rotation[1]` = yaw (facing the reference camera unless given),
 `from_picture` = the box `[x0, y0, x1, y1]` (0..1) it was placed from.
 
+## Generative steps: slots
+Every generative step of building a world is a **slot** filled by a ComfyUI
+workflow — never by code in the pack. `GET /bepic_worlds/slots` lists them with
+the workflows the pack ships (`slots/*.json`) and the one chosen for each;
+`POST /bepic_worlds/slots {slot, template}` chooses another (a workflow of the
+pack, or the name of a template in the agent's own library; empty = default);
+`GET /bepic_worlds/slot_template?name=` hands one out.
+
+| slot | in → out | pack workflows (default first) |
+|---|---|---|
+| `depth` | image → 16-bit depth | `depth_da2_16bit` (Depth Anything V2, float), `depth_sharp_metric` (SHARP metric depth) |
+| `segment` | image, prompt (`"car:8"`), individual → masks | `segment_sam3` |
+| `image_to_3d` | object crop, seed → mesh | `i23d_hunyuan21` (shape only, textured from the picture), `i23d_meshy` (API, PBR-textured) |
+| `texture_refine` | patch, prompt, denoise → texture | `texture_refine_zimage` (img2img) |
+| `texture_generate` | prompt → texture | `texture_generate_zimage` |
+| `material` | texture → albedo, normal, roughness, metalness | `material_chord` (upscale + Chord) |
+| `sky` | prompt → 2:1 panorama | `sky_zimage_pano`, `sky_qwen360` (needs the Qwen 360 LoRA) |
+| `object_image` | prompt → image, mask | `object_zimage_rmbg` (Z-Image + RMBG) |
+
+A workflow fits a slot by its **node titles**: `IN:<name>` on a LoadImage is an
+input image; `IN:<name>.<field>` sets that input of that node (several names on
+one node: `IN:denoise.denoise|seed.seed`); `OUT:<name>` on a save node is an
+output. A library template without such titles is bound by node type.
+
+**Textures tile by default.** Diffusion runs through *bEpic Seamless Model* (the
+latent is rolled by a random offset at every step, so the wrap-around edge is
+drawn like any other place) and *bEpic Seamless VAE Decode*; the material step
+wrap-pads its input (*bEpic Wrap Pad* / *bEpic Unpad*) so the upscaler and Chord
+see across the seams too. Panoramas wrap sideways the same way.
+
 ## Real assets from the picture
 The routes an agent strings together (all POST, all JSON):
-1. `stage_reference {name}` → the reference as a ComfyUI input image, for SAM3.
-2. SAM3 on it with the prompt `"<label>:N"` (up to N instances), one mask per instance.
+1. `stage_reference {name}` → the reference as a ComfyUI input image.
+2. The `segment` slot on it, `"<label>:N"` (up to N instances), one mask each.
 3. `object_crops {name, label, masks, limit?, crops?}` → the instances, best first
    (whole, unoccluded, big), each with `bbox`, `score`, `placement` and, for the
    first `crops`, a `crop` (on white, for image-to-3D) and a `texture` (RGBA).
 4. `fit_camera {name, objects: [{bbox, height}]}` → the camera tilt that makes
    objects of known height (cars 1.5 m) come out that tall; `rebuild {name, pitch}`
    when it differs from the world's (a rebuild remakes the world from the files it
-   was made from — objects and materials added since are not carried over).
-5. Image-to-3D on the best `crop`, then `edit` with `add_asset {glb, texture, label, bboxes}`.
-6. `material_crop {name, masks | box, label?}` → a patch of a surface for a material
-   model (Chord): from SAM3's masks of the surface the clearest near square is cut;
-   `edit` with `set_material {layer, albedo, normal, roughness}`.
+   was made from — objects, materials and skies added since are not carried over).
+5. The `image_to_3d` slot on the best `crop`, then `edit` with
+   `add_asset {glb, texture | textured: true, label, bboxes}`.
+6. Surfaces: `material_crop {name, masks | box, label?}` cuts the clearest, plainest
+   near patch of a surface; `texture_refine` (guided by a description of the
+   surface) and `material` turn it into tileable maps; `edit` with `set_material`.
+   Or `texture_generate` from words alone.
+7. Things the picture doesn't show: `object_image` from words → `cutout
+   {name, image, mask, label}` → `image_to_3d` → `add_asset` with `positions` or
+   `scatter`.
+8. Sky: the `sky` slot → `edit` with `set_sky {panorama}` (its horizon is moved to
+   the middle row).
 
-Depth for `create` comes best from the **bEpic World Depth (16-bit)** node: 8-bit
-depth leaves the far end of a picture only a few steps and the hero view terraces.
-Generated meshes are decimated to ~40k triangles; the faces the picture never saw
-take a blurred copy of the crop.
+Generated meshes are decimated to ~40k triangles; faces the picture never saw take
+a blurred copy of the crop; meshes that come textured keep their materials.
 
 ## Cameras
 Standard previz camera (`fov` vertical degrees, `resolution` `[w, h]`) plus
