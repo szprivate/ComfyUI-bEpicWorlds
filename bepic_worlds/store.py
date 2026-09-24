@@ -361,6 +361,8 @@ class WorldStore:
             return self._set_material(name, scene, op, version)
         if kind == "set_sky":
             return self._set_sky(name, scene, op, version)
+        if kind == "set_motion":
+            return self._set_motion(name, scene, op, version)
         if kind == "set_time":
             t = str(op["time"]).lower()
             if t not in specmod.TIMES:
@@ -446,6 +448,36 @@ class WorldStore:
             scene["items"].append(item)
             ids.append(iid)
         return ids
+
+    def _set_motion(self, name, scene, op, version):
+        """Ambient motion on the picture's own 3D view: op {video (a loop that
+        starts and ends on the picture), mask? (where it may move: white),
+        id?: 'hero'}. Without a mask the whole picture plays."""
+        import shutil
+        from PIL import Image, ImageFilter
+        video = op.get("video")
+        if not video or not os.path.isfile(video):
+            raise ValueError("set_motion needs `video`: the loop made from the picture")
+        item = self._item(scene, op.get("id") or "hero")
+        if item.get("kind") != "depthmesh":
+            raise ValueError(f"'{item.get('id')}' is not the picture's depth mesh")
+        folder = os.path.join(self.dir(name), "assets", "motion")
+        os.makedirs(folder, exist_ok=True)
+        dst = os.path.join(folder, f"motion_v{version}{os.path.splitext(video)[1] or '.mp4'}")
+        shutil.copyfile(video, dst)
+        motion = {"src": builder.src(dst)}
+        mask = op.get("mask")
+        if mask:
+            if not os.path.isfile(mask):
+                raise ValueError(f"no such mask: {mask}")
+            with Image.open(mask) as im:
+                m = im.convert("L")
+                m = m.filter(ImageFilter.GaussianBlur(max(2, m.width // 120)))    # soft edges: no seam
+                mdst = os.path.join(folder, f"motion_mask_v{version}.png")
+                m.save(mdst)
+            motion["mask"] = builder.src(mdst)
+        item.setdefault("depthmesh", {})["motion"] = motion
+        return [item["id"]]
 
     def _set_sky(self, name, scene, op, version):
         """A panorama for the sky: op {panorama (2:1 image), horizon? (0..1:
@@ -603,6 +635,8 @@ OPS = {
                  "from its picture unless it comes textured. Files may be ComfyUI refs {filename, subfolder, type}.",
     "set_material": "{op, id?: 'terrain', layer: 0..3, albedo, normal?, roughness?, tile?, normalScale?, "
                     "baked?, description?} — PBR maps (e.g. from Chord) onto a terrain layer.",
+    "set_motion": "{op, video, mask?, id?: 'hero'} — a loop of the picture moving, played on its depth mesh "
+                  "where the mask is white (the motion slot makes one).",
     "set_sky": "{op, panorama, horizon?, level?} — a 2:1 sky panorama (the sky slot makes one); its "
                "horizon is moved to the middle row unless level is false.",
 }

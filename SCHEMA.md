@@ -86,7 +86,8 @@ the reference camera stands.
 `depthmesh.src` (picture), `depthmesh.depth` (map: bright = near unless `invert`),
 `fov` (vertical, degrees), `near`, `far` (metres the map's ends mean),
 `cut` (tear threshold at depth edges, 0.05–0.3), `segments`, `encoding` (`rg16` 16-bit, or `gray`),
-`curve` (optional `[[d, metres], …]`, interpolated in inverse depth, where the map isn't one straight line).
+`curve` (optional `[[d, metres], …]`, interpolated in inverse depth, where the map isn't one straight line),
+`motion` (optional `{src: video, mask?: image}`: a loop of the picture played where the mask is white).
 
 ## `model` (ids `<label>_<n>`, from `add_asset`)
 A generated mesh (image-to-3D) standing where the picture shows the object.
@@ -113,6 +114,7 @@ pack, or the name of a template in the agent's own library; empty = default);
 | `material` | texture → albedo, normal, roughness, metalness | `material_chord` (upscale + Chord) |
 | `sky` | prompt → 2:1 panorama | `sky_zimage_pano`, `sky_qwen360` (needs the Qwen 360 LoRA) |
 | `object_image` | prompt → image, mask | `object_zimage_rmbg` (Z-Image + RMBG) |
+| `motion` | picture, prompt, width, height, length → looping video | `motion_wan22_loop` (Wan 2.2 Fun Inpaint, first = last frame) |
 
 A workflow fits a slot by its **node titles**: `IN:<name>` on a LoadImage is an
 input image; `IN:<name>.<field>` sets that input of that node (several names on
@@ -147,6 +149,11 @@ The routes an agent strings together (all POST, all JSON):
    `scatter`.
 8. Sky: the `sky` slot → `edit` with `set_sky {panorama}` (its horizon is moved to
    the middle row).
+9. Ambient motion: the `segment` slot finds what moves (water, leaves, a flag);
+   the `motion` slot makes a loop of the picture (*bEpic Loop Frames* cuts it where
+   it changes least and cross-fades the tail into the head, so it has no jump);
+   `edit` with `set_motion {video, mask}` plays it on the hero view where the mask
+   is white.
 
 Generated meshes are decimated to ~40k triangles; faces the picture never saw take
 a blurred copy of the crop; meshes that come textured keep their materials.

@@ -350,6 +350,18 @@ def build_world(reference, out_dir, name="world", spec=None, depth=None, heightm
     # Nothing grows in the reference view's foreground: the picture shows
     # what is there, and a tree planted on the lens would hide all of it.
     clear = {"center": [spawn_x, spawn_z - 6.0], "radius": 12.0}
+    if dmap is not None:
+        # With a depth map the picture itself stands in 3D across its whole
+        # view: kept clear is the wedge it covers, out to where it ends —
+        # beside and behind it the world's own trees grow.
+        near, far, curve = depth_range(dmap, fov, pitch, eye_height, size)
+        w_px, h_px = analysis["size"]
+        # Wider than the view by a canopy's breadth: a tree just outside the
+        # edge still reaches into the frame.
+        half = math.degrees(math.atan(math.tan(math.radians(fov) / 2) * w_px / h_px)) + 12.0
+        clear = [{"wedge": {"apex": [eye[0], eye[2]], "yaw": 0.0, "half": round(half, 2),
+                            "range": round(min(far, 400.0), 1)}},
+                 {"center": [eye[0], eye[2]], "radius": 10.0}]
     counts = {}
     for entry in recipe["scatter"]:
         k = entry["type"]
@@ -365,7 +377,6 @@ def build_world(reference, out_dir, name="world", spec=None, depth=None, heightm
 
     if dmap is not None:
         d_path = _save(terr.encode_rg16(dmap), os.path.join(assets, "depth.png"))
-        near, far, curve = depth_range(dmap, fov, pitch, eye_height, size)
         hero = {"src": src(ref_path), "depth": src(d_path), "encoding": "rg16", "fov": float(fov),
                 "near": near, "far": far, "cut": 0.12, "invert": False, "segments": 256}
         if curve:

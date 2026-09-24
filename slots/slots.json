@@ -127,6 +127,25 @@
    }
   }
  },
+ "motion": {
+  "about": "A short loop of the picture moving (water, leaves, flags, flicker) that starts and ends on it.",
+  "inputs": {
+   "image": "the reference picture",
+   "prompt": "what moves and how",
+   "width": "",
+   "height": "",
+   "length": "frames (4n+1)"
+  },
+  "outputs": {
+   "video": "mp4"
+  },
+  "default": "motion_wan22_loop",
+  "templates": {
+   "motion_wan22_loop": {
+    "about": "Wan 2.2 Fun Inpaint 14B, first = last frame, 4-step LoRAs (local, ~3-6 min for 5 s at 832x480)."
+   }
+  }
+ },
  "object_image": {
   "about": "A picture of one object from words, on a clean background, with its mask \u2014 for image_to_3d.",
   "inputs": {

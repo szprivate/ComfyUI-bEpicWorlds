@@ -323,6 +323,40 @@ class bEpicSeamlessVAEDecode:
         return (img[:, py * f:h - py * f, p * f:w - p * f, :].contiguous(),)
 
 
+class bEpicLoopFrames:
+    """Frames that loop without a jump, whatever made them: the last
+    `crossfade` frames are faded into the first ones, and the clip gets that
+    much shorter. A video model asked to end where it began seldom quite does;
+    this makes sure."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"images": ("IMAGE",),
+                             "crossfade": ("INT", {"default": 12, "min": 1, "max": 256})}}
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "run"
+    CATEGORY = "bEpic/worlds"
+
+    def run(self, images, crossfade):
+        n = images.shape[0]
+        k = min(int(crossfade), n // 3)
+        if k < 1:
+            return (images,)
+        # Cut where the clip itself changes least from one frame to the next
+        # (video models jump a little at their latent chunk boundaries), so
+        # the frame before the cut and the one after it are a plain step.
+        small = images[:, ::8, ::8, :3]
+        steps = (small[1:] - small[:-1]).abs().mean(dim=(1, 2, 3))      # steps[c-1]: frame c-1 -> c
+        lo, hi = n // 2, n - k
+        c = lo + int(torch.argmin(steps[lo - 1:hi - 1]).item())
+        out = images[:c].clone()
+        for i in range(k):
+            t = i / k                                   # 0: all tail, 1: all head
+            out[i] = images[c + i] * (1 - t) + images[i] * t
+        return (out,)
+
+
 class bEpicWrapPad:
     """Pad an image with its own opposite edges (as a tile repeats), so a
     model run on it sees across the seams. Crop the padding off afterwards
@@ -378,6 +412,7 @@ NODE_CLASS_MAPPINGS = {
     "bEpicSeamlessModel": bEpicSeamlessModel,
     "bEpicSeamlessVAEDecode": bEpicSeamlessVAEDecode,
     "bEpicWrapPad": bEpicWrapPad,
+    "bEpicLoopFrames": bEpicLoopFrames,
     "bEpicUnpad": bEpicUnpad,
     "bEpicWorldFromReference": bEpicWorldFromReference,
     "bEpicWorldEdit": bEpicWorldEdit,
@@ -389,6 +424,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "bEpicSeamlessModel": "bEpic Seamless Model (tileable output)",
     "bEpicSeamlessVAEDecode": "bEpic Seamless VAE Decode",
     "bEpicWrapPad": "bEpic Wrap Pad (tile context)",
+    "bEpicLoopFrames": "bEpic Loop Frames (seamless loop)",
     "bEpicUnpad": "bEpic Unpad (after Wrap Pad)",
     "bEpicWorldFromReference": "bEpic World From Reference",
     "bEpicWorldEdit": "bEpic World Edit",

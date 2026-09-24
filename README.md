@@ -20,7 +20,7 @@ Three ways in, one library underneath (`bepic_worlds`, numpy + Pillow):
 |---|---|---|
 | **MCP server** | agents (agentY, Claude Code, any MCP client) | `python -m bepic_worlds.mcp_server` |
 | **CLI** | agents that run shell commands, scripts | `python -m bepic_worlds …` |
-| **ComfyUI nodes** | workflows | *bEpic World From Reference*, *bEpic World Edit*, *bEpic World Feedback*, *bEpic World Depth (16-bit)*, *bEpic Save Depth (16-bit)*, *bEpic Seamless Model*, *bEpic Seamless VAE Decode*, *bEpic Wrap Pad*, *bEpic Unpad* |
+| **ComfyUI nodes** | workflows | *bEpic World From Reference*, *bEpic World Edit*, *bEpic World Feedback*, *bEpic World Depth (16-bit)*, *bEpic Save Depth (16-bit)*, *bEpic Seamless Model*, *bEpic Seamless VAE Decode*, *bEpic Wrap Pad*, *bEpic Unpad*, *bEpic Loop Frames* |
 
 Worlds are **shown** by the bEpic Image Viewer (`ComfyUI-ImageViewer`,
 master): walk mode, the reference overlay, Match, and feedback pins live there.
@@ -120,9 +120,9 @@ input, output or temp folder; no route starts a process.
 ## Generative steps are ComfyUI workflows
 
 Depth, segmentation, image → 3D, texture refinement and generation, PBR
-materials, skies and object pictures are each a **slot** filled by a ComfyUI
+materials, skies, object pictures and ambient motion loops are each a **slot** filled by a ComfyUI
 workflow in `slots/` (Depth Anything / SHARP, SAM3, Hunyuan3D / Meshy, Z-Image,
-Chord, Qwen-Image 360). Swap any of them for another workflow — yours, or a
+Chord, Qwen-Image 360, Wan 2.2). Swap any of them for another workflow — yours, or a
 template from your agent's library — through `POST /bepic_worlds/slots`. Textures
 come out tileable: see *Generative steps: slots* in [SCHEMA.md](SCHEMA.md).
 

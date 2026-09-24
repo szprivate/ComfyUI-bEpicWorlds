@@ -89,7 +89,7 @@ def view_ref(path):
             "type": "output"}
 
 
-_FILE_KEYS = ("glb", "texture", "albedo", "normal", "roughness", "height", "mask", "panorama")
+_FILE_KEYS = ("glb", "texture", "albedo", "normal", "roughness", "height", "mask", "panorama", "video")
 
 
 def resolve_op_files(ops):
