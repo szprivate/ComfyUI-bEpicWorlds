@@ -144,12 +144,72 @@ class bEpicWorldFeedback:
         return ("\n".join(lines) or "no feedback", len(entries), images)
 
 
+class bEpicWorldDepth:
+    """Depth for a world, at 16 bits.
+
+    Depth Anything V2 (the model comfyui_controlnet_aux uses) kept in float and
+    saved as a 16-bit PNG under output/worlds_depth. The usual depth nodes hand
+    on 8 bits, which leaves the far end of a picture — a hall, a valley — with
+    only a few steps of depth; the world's hero view tears into terraces there.
+    Feed the file to bEpic World From Reference (or `create … depth`)."""
+
+    CKPTS = ["depth_anything_v2_vitl.pth", "depth_anything_v2_vitb.pth",
+             "depth_anything_v2_vits.pth", "depth_anything_v2_vitg.pth"]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "image": ("IMAGE",),
+            "ckpt_name": (cls.CKPTS, {"default": "depth_anything_v2_vitl.pth"}),
+            "input_size": ("INT", {"default": 770, "min": 266, "max": 1540, "step": 14,
+                                   "tooltip": "The model's working size (a multiple of 14); larger = finer, slower"}),
+            "filename_prefix": ("STRING", {"default": "depth"}),
+        }}
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("depth_preview",)
+    FUNCTION = "run"
+    OUTPUT_NODE = True
+    CATEGORY = "bEpic/worlds"
+
+    def run(self, image, ckpt_name, input_size, filename_prefix):
+        try:
+            from custom_controlnet_aux.depth_anything_v2 import DepthAnythingV2Detector
+        except ImportError:
+            raise RuntimeError("bEpic World Depth needs comfyui_controlnet_aux (its Depth Anything V2 model)")
+        import comfy.model_management as mm
+        import folder_paths
+        det = DepthAnythingV2Detector.from_pretrained(filename=ckpt_name).to(mm.get_torch_device())
+        folder = os.path.join(folder_paths.get_output_directory(), "worlds_depth")
+        os.makedirs(folder, exist_ok=True)
+        stem = "".join(c for c in filename_prefix if c.isalnum() or c in "-_") or "depth"
+        n = 1 + max([int(f[len(stem) + 1:-4]) for f in os.listdir(folder)
+                     if f.startswith(stem + "_") and f.endswith(".png") and f[len(stem) + 1:-4].isdigit()] or [0])
+        paths, previews = [], []
+        try:
+            for frame in image:
+                rgb = np.clip(frame.cpu().numpy()[..., :3] * 255.0, 0, 255).astype(np.uint8)
+                with torch.no_grad():
+                    d = det.model.infer_image(np.ascontiguousarray(rgb[..., ::-1]), input_size=int(input_size))
+                d = (d - d.min()) / max(1e-8, float(d.max() - d.min()))
+                path = os.path.join(folder, f"{stem}_{n:05d}.png")
+                n += 1
+                Image.fromarray(np.round(d * 65535).astype(np.uint16)).save(path)
+                paths.append(path)
+                previews.append(np.repeat(d[..., None], 3, axis=2).astype(np.float32))
+        finally:
+            del det
+        return {"ui": _ui_images(paths), "result": (torch.from_numpy(np.stack(previews)),)}
+
+
 NODE_CLASS_MAPPINGS = {
+    "bEpicWorldDepth": bEpicWorldDepth,
     "bEpicWorldFromReference": bEpicWorldFromReference,
     "bEpicWorldEdit": bEpicWorldEdit,
     "bEpicWorldFeedback": bEpicWorldFeedback,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "bEpicWorldDepth": "bEpic World Depth (16-bit)",
     "bEpicWorldFromReference": "bEpic World From Reference",
     "bEpicWorldEdit": "bEpic World Edit",
     "bEpicWorldFeedback": "bEpic World Feedback",

@@ -137,6 +137,11 @@ class WorldStore:
         version = self.version(name) + 1 if previous is not None else 1
         assets = os.path.join(d, "assets") if version == 1 else os.path.join(d, "assets", f"v{version:03d}")
         scene, meta = builder.build_world(reference, d, name=name, assets_dir=assets, **kwargs)
+        # What it was made from, so `rebuild` can make it again with one thing changed.
+        meta["inputs"] = {k: os.path.abspath(v) for k, v in
+                          dict(kwargs, reference=reference).items()
+                          if k in ("reference", "depth", "heightmap", "panorama") and isinstance(v, str) and os.path.isfile(v)}
+        meta["seed"] = kwargs.get("seed")
         if previous is not None:
             meta["created"] = previous.get("created", _now())
             meta["history"] = previous.get("history", []) + [
@@ -147,6 +152,25 @@ class WorldStore:
         _write(os.path.join(d, "meta.json"), meta)
         self._save_scene(name, scene, version)
         return self.summary(name)
+
+    def rebuild(self, name, note="rebuilt", **changes):
+        """Make a world again from the inputs it was made from, with `changes`
+        (pitch, fov, spec, world_size, eye_height, seed, depth, …) — its next
+        version. Edits made since (add_asset, set_material, …) are not carried
+        over: rebuild first, then add."""
+        meta = self.meta(name)
+        inputs = dict(meta.get("inputs") or {})
+        if not inputs.get("reference") or not os.path.isfile(inputs["reference"]):
+            raise ValueError(f"'{name}' doesn't record the files it was made from; create it again instead")
+        kwargs = {"spec": meta.get("spec"), "fov": meta.get("fov"), "world_size": meta.get("world_size"),
+                  "eye_height": meta.get("eye_height"), "seed": meta.get("seed")}
+        pitch = (meta.get("analysis") or {}).get("pitch")
+        if (meta.get("analysis") or {}).get("pitch_source") == "objects" and pitch is not None:
+            kwargs["pitch"] = pitch                      # a measured tilt survives a rebuild
+        kwargs.update({k: v for k, v in inputs.items() if k != "reference"})
+        kwargs.update({k: v for k, v in changes.items() if v is not None})
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        return self.create(inputs["reference"], name=name, overwrite=True, note=note, **kwargs)
 
     def load(self, name, version=None):
         d = self.dir(name)

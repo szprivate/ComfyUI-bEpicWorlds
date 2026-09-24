@@ -159,8 +159,13 @@ def register():
     @routes.get("/bepic_worlds/info")
     async def info(_request):
         from .bepic_worlds import __version__
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "SCHEMA.md"), encoding="utf-8") as fh:
+                schema = fh.read()
+        except OSError:
+            schema = None
         return web.json_response({"root": store().root, "version": __version__,
-                                  "ops": store_mod.OPS})
+                                  "ops": store_mod.OPS, "schema": schema})
 
     @routes.get("/bepic_worlds/list")
     async def list_worlds(_request):
@@ -195,6 +200,26 @@ def register():
             if d.get("open_in_viewer", True):
                 out["viewer"] = open_in_viewer(out["name"])
             return web.json_response(out)
+        except Exception as e:
+            return _err(e)
+
+    @routes.post("/bepic_worlds/rebuild")
+    async def rebuild(request):
+        """Make a world again from what it was made from, with some settings
+        changed — typically the `pitch` fit_camera measured. Body: {name,
+        pitch?, fov?, spec?, world_size?, eye_height?, seed?, depth?, note?}."""
+        try:
+            d = await _json(request)
+            changes = {k: d[k] for k in ("pitch", "fov", "spec", "world_size", "eye_height", "seed") if d.get(k) is not None}
+            for k in ("depth", "heightmap", "panorama"):
+                if d.get(k):
+                    changes[k] = resolve_image(d[k])
+            out = store().rebuild(store_mod.safe_name(d.get("name", "")), note=d.get("note") or "rebuilt", **changes)
+            if d.get("open_in_viewer", True):
+                out["viewer"] = open_in_viewer(out["name"])
+            return web.json_response(out)
+        except FileNotFoundError as e:
+            return _err(e, 404)
         except Exception as e:
             return _err(e)
 
@@ -330,20 +355,25 @@ def register():
     @routes.post("/bepic_worlds/material_crop")
     async def material_crop(request):
         """A tileable patch of a surface in the reference, for a material model.
-        Body: {name, box: [x0, y0, x1, y1] (0..1), label?}."""
+        Body: {name, box: [x0, y0, x1, y1] (0..1) — or masks: [ComfyUI refs]
+        (SAM3's masks of the surface; the clearest near patch is picked) —, label?}."""
         try:
             d = await _json(request)
             name = store_mod.safe_name(d.get("name", ""))
             label = store_mod.safe_name(d.get("label") or "surface").lower()
-            box = [float(v) for v in d.get("box") or []]
-            if len(box) != 4:
-                raise ValueError("box must be [x0, y0, x1, y1] in 0..1")
             from .bepic_worlds import assets as assetsmod
+            if d.get("masks") and not d.get("box"):
+                box = assetsmod.surface_box([resolve_image(m) for m in d["masks"]])
+            else:
+                box = [float(v) for v in d.get("box") or []]
+            if len(box) != 4:
+                raise ValueError("give box: [x0, y0, x1, y1] in 0..1, or masks of the surface")
             scene = store().load(name)
             cam = next((i for i in scene["items"] if i.get("id") == "refcam"), None)
             ref = ((cam or {}).get("reference") or {}).get("src", {}).get("path")
             patch_im = assetsmod.material_crop(ref, box)
-            return web.json_response({"patch": _save_to_input(patch_im, f"worlds_crops/{name}", f"mat_{label}.png")})
+            return web.json_response({"patch": _save_to_input(patch_im, f"worlds_crops/{name}", f"mat_{label}.png"),
+                                      "box": box})
         except Exception as e:
             return _err(e)
 

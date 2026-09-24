@@ -103,11 +103,18 @@ The routes an agent strings together (all POST, all JSON):
    (whole, unoccluded, big), each with `bbox`, `score`, `placement` and, for the
    first `crops`, a `crop` (on white, for image-to-3D) and a `texture` (RGBA).
 4. `fit_camera {name, objects: [{bbox, height}]}` → the camera tilt that makes
-   objects of known height (cars 1.5 m) come out that tall; rebuild with
-   `create … pitch` when it differs from the world's.
+   objects of known height (cars 1.5 m) come out that tall; `rebuild {name, pitch}`
+   when it differs from the world's (a rebuild remakes the world from the files it
+   was made from — objects and materials added since are not carried over).
 5. Image-to-3D on the best `crop`, then `edit` with `add_asset {glb, texture, label, bboxes}`.
-6. `material_crop {name, box, label?}` → a patch of a surface for a material model
-   (Chord); `edit` with `set_material {layer, albedo, normal, roughness}`.
+6. `material_crop {name, masks | box, label?}` → a patch of a surface for a material
+   model (Chord): from SAM3's masks of the surface the clearest near square is cut;
+   `edit` with `set_material {layer, albedo, normal, roughness}`.
+
+Depth for `create` comes best from the **bEpic World Depth (16-bit)** node: 8-bit
+depth leaves the far end of a picture only a few steps and the hero view terraces.
+Generated meshes are decimated to ~40k triangles; the faces the picture never saw
+take a blurred copy of the crop.
 
 ## Cameras
 Standard previz camera (`fov` vertical degrees, `resolution` `[w, h]`) plus

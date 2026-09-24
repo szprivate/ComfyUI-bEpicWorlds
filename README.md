@@ -20,7 +20,7 @@ Three ways in, one library underneath (`bepic_worlds`, numpy + Pillow):
 |---|---|---|
 | **MCP server** | agents (agentY, Claude Code, any MCP client) | `python -m bepic_worlds.mcp_server` |
 | **CLI** | agents that run shell commands, scripts | `python -m bepic_worlds …` |
-| **ComfyUI nodes** | workflows | *bEpic World From Reference*, *bEpic World Edit*, *bEpic World Feedback* |
+| **ComfyUI nodes** | workflows | *bEpic World From Reference*, *bEpic World Edit*, *bEpic World Feedback*, *bEpic World Depth (16-bit)* |
 
 Worlds are **shown** by the bEpic Image Viewer (`ComfyUI-ImageViewer`,
 master): walk mode, the reference overlay, Match, and feedback pins live there.
@@ -110,12 +110,18 @@ from the **spec**: biome, time of day, density, terrain height, what grows.
 ## Routes (ComfyUI)
 
 `GET  /bepic_worlds/info · /list · /world?name=[&version=][&summary=1] · /feedback?name=&status=`
-`POST /bepic_worlds/create · /edit · /revert · /open · /calibrate · /feedback · /feedback/resolve`
+`POST /bepic_worlds/create · /rebuild · /edit · /revert · /open · /calibrate · /feedback · /feedback/resolve`
 `POST /bepic_worlds/stage_reference · /object_crops · /fit_camera · /material_crop` (real assets from the picture — see SCHEMA.md)
 
 Everything that changes something is POST; worlds live under `output/worlds`
 and are reached by sanitised name only; reference images must be in ComfyUI's
 input, output or temp folder; no route starts a process.
+
+## agentY
+
+agentY has a **World Builder** specialist (`run_world_builder`) that drives all of
+this — including the real-asset pipelines (SAM3 → Hunyuan3D 2.1 → `add_asset`,
+SAM3 → Chord → `set_material`) — from its `src/tools/worlds.py`.
 
 ## Status
 

@@ -114,6 +114,28 @@ def material_crop(reference, box, size=768):
     return to_pil(tex.from_reference(load_rgb(reference), box, size=size))
 
 
+def surface_box(mask_paths, prefer_near=True):
+    """Where to cut a material patch from a surface SAM3 found: the biggest
+    square lying wholly inside the mask (its largest piece), favouring the
+    bottom of the picture — the near ground, where the texture is sharpest.
+    Returns [x0, y0, x1, y1] in 0..1."""
+    from scipy import ndimage
+    m = None
+    for p in mask_paths:
+        a = mask_array(p)
+        m = a if m is None else (m | a)
+    if m is None or not m.any():
+        raise ValueError("the mask is empty — nothing of that surface was found")
+    m = largest_component(m)
+    h, w = m.shape
+    dist = ndimage.distance_transform_edt(np.pad(m, 1))[1:-1, 1:-1]
+    score = dist * ((0.5 + np.arange(h, dtype=np.float32)[:, None] / h) if prefer_near else 1.0)
+    y, x = np.unravel_index(int(np.argmax(score)), score.shape)
+    half = max(4.0, float(dist[y, x]) * 0.7)        # a square inside the clear disc
+    box = [(x - half) / w, (y - half) / h, (x + half) / w, (y + half) / h]
+    return [round(float(min(1.0, max(0.0, v))), 4) for v in box]
+
+
 # ── where an object stands ───────────────────────────────────────────────────
 
 def _camera(scene):
@@ -263,26 +285,71 @@ def fit_pitch(objects, fov, eye_height=1.7, aspect=1.5):
 
 # ── the photo's pixels on the mesh ───────────────────────────────────────────
 
-def project_texture(glb_in, rgba_crop, glb_out, front=(0.0, 0.0, 1.0)):
+def decimate(vertices, faces, max_faces=40000):
+    """Fewer triangles by vertex clustering: vertices sharing a grid cell
+    merge into their mean, and faces that collapse go. Crude for sharp CAD
+    edges, but an image-to-3D mesh (surface nets: even, dense, soft) takes it
+    well — 200k triangles per copy is more than a walkable world can afford.
+    The cell size is searched for the largest count at or under `max_faces`."""
+    v = np.asarray(vertices, dtype=np.float64)
+    f = np.asarray(faces, dtype=np.int64)
+    if len(f) <= max_faces:
+        return v, f
+    ext = float(np.ptp(v, axis=0).max()) or 1.0
+
+    def cluster(step):
+        q = np.floor((v - v.min(0)) / (ext * step)).astype(np.int64)
+        _, inv, counts = np.unique(q, axis=0, return_inverse=True, return_counts=True)
+        inv = inv.reshape(-1)
+        nv = np.zeros((len(counts), 3))
+        np.add.at(nv, inv, v)
+        nv /= counts[:, None]
+        nf = inv[f]
+        keep = (nf[:, 0] != nf[:, 1]) & (nf[:, 1] != nf[:, 2]) & (nf[:, 0] != nf[:, 2])
+        nf = nf[keep]
+        _, first = np.unique(np.sort(nf, axis=1), axis=0, return_index=True)
+        return nv, nf[np.sort(first)]
+
+    lo, hi = 1 / 2048, 1 / 24                          # cell size as a share of the object's extent
+    best = cluster(hi)
+    for _ in range(12):
+        mid = (lo * hi) ** 0.5
+        nv, nf = cluster(mid)
+        if len(nf) > max_faces:
+            lo = mid
+        else:
+            hi, best = mid, (nv, nf)
+    used = np.unique(best[1])
+    remap = np.full(len(best[0]), -1, dtype=np.int64)
+    remap[used] = np.arange(len(used))
+    return best[0][used], remap[best[1]]
+
+
+def project_texture(glb_in, rgba_crop, glb_out, front=(0.0, 0.0, 1.0), max_faces=40000):
     """Texture an untextured mesh with the crop it was made from.
 
     An image-to-3D model builds the object as seen in its input image, so the
-    crop is a projection of the object's front: each vertex takes its colour
-    from where it falls in the crop, looking along `front`. Faces turned away
-    get the same pixels, which reads as the object's own colours rather than
-    a hole. The mesh is also recentred to stand on y=0, one unit tall.
+    crop is a projection of the object's front: faces turned towards `front`
+    take their colour from where they fall in the crop. Faces the picture never
+    saw (the sides, the top, the far end) take the same place in a heavily
+    blurred copy — the object's own colours, without a tail light smeared along
+    the whole flank. The mesh is decimated to `max_faces`, recentred to stand on
+    y = 0 and scaled one unit tall.
     Returns the mesh's extent after normalising (width, height, depth).
     """
     import trimesh
+    from PIL import ImageFilter
     scene = trimesh.load(glb_in, force="scene")
     mesh = trimesh.util.concatenate([g for g in scene.dump() if isinstance(g, trimesh.Trimesh)])
-    v = mesh.vertices.copy()
+    v, faces = decimate(mesh.vertices, mesh.faces, max_faces)
     lo, hi = v.min(0), v.max(0)
     size = hi - lo
-    v -= np.array([(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2])
+    v = v - np.array([(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2])
     v /= max(size[1], 1e-6)                            # one unit tall, standing on y = 0
-    mesh.vertices = v
     lo, hi = v.min(0), v.max(0)
+    smooth = trimesh.Trimesh(v, faces, process=False)
+    normals = smooth.vertex_normals.copy()
+    fnorm = smooth.face_normals
 
     rgba = rgba_crop if isinstance(rgba_crop, Image.Image) else Image.open(rgba_crop)
     a = np.asarray(rgba.convert("RGBA"), dtype=np.float32) / 255.0
@@ -294,21 +361,32 @@ def project_texture(glb_in, rgba_crop, glb_out, front=(0.0, 0.0, 1.0)):
     up = np.array([0.0, 1.0, 0.0])
     right = np.cross(up, f)
     right /= np.linalg.norm(right) if np.linalg.norm(right) > 1e-6 else 1
-    pu = v @ right
-    pv = v @ up
+    pu, pv = v @ right, v @ up
     uu = bx0 + (pu - pu.min()) / max(np.ptp(pu), 1e-6) * (bx1 - bx0)
     vv = by0 + (pv.max() - pv) / max(np.ptp(pv), 1e-6) * (by1 - by0)
-    uv = np.stack([uu, 1.0 - vv], axis=-1)
 
-    # Fill the texture's empty (masked-out) ground with the object's own
-    # colours, so edge texels don't bleed white.
+    # The atlas: the crop on the left half, a blurred copy on the right.
     colour = a[..., :3]
     m = a[..., 3] > 0.5
     fill = colour[m].mean(0) if m.any() else np.array([0.5, 0.5, 0.5])
-    filled = np.where(m[..., None], colour, fill)
-    img = Image.fromarray((filled * 255).astype(np.uint8), "RGB")
-    material = trimesh.visual.material.PBRMaterial(baseColorTexture=img, roughnessFactor=0.6, metallicFactor=0.0)
-    mesh.visual = trimesh.visual.TextureVisuals(uv=uv, material=material)
-    os.makedirs(os.path.dirname(glb_out), exist_ok=True)
-    mesh.export(glb_out)
+    filled = Image.fromarray((np.where(m[..., None], colour, fill) * 255).astype(np.uint8), "RGB")
+    blurred = filled.filter(ImageFilter.GaussianBlur(max(4, int(0.06 * max(W, H)))))
+    atlas = Image.new("RGB", (W * 2, H))
+    atlas.paste(filled, (0, 0))
+    atlas.paste(blurred, (W, 0))
+
+    # Each face is seen or unseen as a whole, so its corners are split off
+    # (a face straddling both halves would smear the atlas between them).
+    seen = fnorm @ f > 0.45                          # squarely towards the camera; slanted corners blur
+    corners = faces.reshape(-1)
+    fv = v[corners]
+    fn = normals[corners]
+    half = np.repeat(np.where(seen, 0.0, 0.5), 3)
+    u = uu[corners] * 0.5 + half
+    uv = np.stack([u, 1.0 - vv[corners]], axis=-1)
+    out = trimesh.Trimesh(fv, np.arange(len(corners)).reshape(-1, 3), vertex_normals=fn, process=False)
+    material = trimesh.visual.material.PBRMaterial(baseColorTexture=atlas, roughnessFactor=0.6, metallicFactor=0.0)
+    out.visual = trimesh.visual.TextureVisuals(uv=uv, material=material)
+    os.makedirs(os.path.dirname(os.path.abspath(glb_out)), exist_ok=True)
+    out.export(glb_out)
     return [round(float(x), 4) for x in (hi - lo)]
