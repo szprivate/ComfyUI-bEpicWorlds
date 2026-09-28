@@ -151,6 +151,14 @@ class HttpBackend:
         return {"matched": False, "note": "no new version yet — is the world open in a viewer? "
                                           "(the match runs in the browser)", **req}
 
+    def find_hdri(self, **query):
+        q = urllib.parse.urlencode({k: v for k, v in query.items() if v not in (None, "")})
+        return self._req("GET", f"/bepic_worlds/hdri_search?{q}")
+
+    def set_hdri(self, name, hdri_id, resolution="4k", sun="match", open_in_viewer=True):
+        return self._req("POST", "/bepic_worlds/hdri", {"name": name, "id": hdri_id, "resolution": resolution,
+                                                        "sun": sun, "open_in_viewer": open_in_viewer})
+
 
 class LocalBackend:
     kind = "local"
@@ -208,6 +216,20 @@ class LocalBackend:
 
     def calibrate(self, name, wait=60.0):
         return self.http.calibrate(name, wait)
+
+    def find_hdri(self, **query):
+        from . import hdri
+        for k in ("urban", "open_sky"):
+            if isinstance(query.get(k), str):
+                query[k] = query[k].lower() in ("1", "true", "yes")
+        return {"source": "Poly Haven (CC0)", "matches": hdri.search(**{k: v for k, v in query.items() if v is not None})}
+
+    def set_hdri(self, name, hdri_id, resolution="4k", sun="match", open_in_viewer=True):
+        from . import hdri
+        path = hdri.fetch(hdri_id, resolution, os.path.join(self.store.root, "_hdri"))
+        return self.edit(name, [{"op": "set_hdri", "file": path, "source": "Poly Haven", "license": "CC0",
+                                 "url": f"https://polyhaven.com/a/{hdri_id}", "title": hdri_id, "sun": sun}],
+                         note=f"environment: Poly Haven HDRI '{hdri_id}' ({resolution})", open_in_viewer=open_in_viewer)
 
     def _try_open(self, name):
         try:

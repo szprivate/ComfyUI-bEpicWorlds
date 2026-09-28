@@ -61,7 +61,8 @@ worlds in a local folder (`--root`, or `$BEPIC_WORLDS_ROOT`).
 
 Tools: `world_schema`, `create_world`, `list_worlds`, `describe_world`,
 `get_world_json`, `edit_world`, `revert_world`, `calibrate_world`, `get_feedback`
-(returns your snapshots as images), `resolve_feedback`, `open_in_viewer`.
+(returns your snapshots as images), `resolve_feedback`, `find_hdri`, `set_hdri`,
+`open_in_viewer`.
 
 `calibrate_world` matches a world's look to its reference by measurement: the
 viewer renders the world from the reference camera (without the picture's own
@@ -102,6 +103,13 @@ layers blended by slope and height), `scatter_*` (pines, trees, bushes, grass,
 rocks, or a model; wind), `refcam` (the reference camera, with the picture
 overlaid), `hero` (the reference pushed into 3D by a depth map, when given).
 
+A world can be built **around one 3D model of the whole picture** (`set_scene_model`,
+item `scene`): TRELLIS.2, Pixal3D, Hunyuan3D, Meshy or Tripo models are sized from the
+picture's buildings and fitted to its 3D; SHARP and MoGe models are built in the
+picture's own camera and placed by it. The terrain is flattened to the model's
+ground. Its sky can be a **photographed HDRI** from Poly Haven (`find_hdri` /
+`set_hdri`), turned so its sun matches the world's and lighting everything in it.
+
 What comes from the **picture**: sky and horizon colours, the horizon line →
 camera tilt, the sun (when it is in frame, else a photographer's guess), fog
 density, ground textures cut from the picture itself, foliage tint. What comes
@@ -112,6 +120,7 @@ from the **spec**: biome, time of day, density, terrain height, what grows.
 `GET  /bepic_worlds/info · /list · /world?name=[&version=][&summary=1] · /feedback?name=&status=`
 `POST /bepic_worlds/create · /rebuild · /edit · /revert · /open · /calibrate · /feedback · /feedback/resolve`
 `POST /bepic_worlds/stage_reference · /object_crops · /fit_camera · /material_crop · /cutout · /slots` (real assets — see SCHEMA.md) · `GET /bepic_worlds/slots · /slot_template?name=`
+`GET  /bepic_worlds/hdri_search?query=…` · `POST /bepic_worlds/hdri` (Poly Haven HDRIs; fetched from Poly Haven's hosts only)
 
 Everything that changes something is POST; worlds live under `output/worlds`
 and are reached by sanitised name only; reference images must be in ComfyUI's
@@ -120,17 +129,19 @@ input, output or temp folder; no route starts a process.
 ## Generative steps are ComfyUI workflows
 
 Depth, segmentation, image → 3D, texture refinement and generation, PBR
-materials, skies, object pictures and ambient motion loops are each a **slot** filled by a ComfyUI
-workflow in `slots/` (Depth Anything / SHARP, SAM3, Hunyuan3D / Meshy, Z-Image,
-Chord, Qwen-Image 360, Wan 2.2). Swap any of them for another workflow — yours, or a
+materials, skies, object pictures, ambient motion loops and the whole-picture scene model are
+each a **slot** filled by a ComfyUI workflow in `slots/` (Depth Anything / SHARP, SAM3,
+Hunyuan3D / Meshy, Z-Image, Chord, Qwen-Image 360, Wan 2.2; for the scene model TRELLIS.2,
+Pixal3D, Hunyuan3D, SHARP, MoGe, Meshy, Tripo). Swap any of them for another workflow — yours, or a
 template from your agent's library — through `POST /bepic_worlds/slots`. Textures
 come out tileable: see *Generative steps: slots* in [SCHEMA.md](SCHEMA.md).
 
 ## agentY
 
 agentY has a **World Builder** specialist (`run_world_builder`) that drives all of
-this — including the real-asset pipelines (SAM3 → Hunyuan3D 2.1 → `add_asset`,
-SAM3 → Chord → `set_material`) — from its `src/tools/worlds.py`.
+this — the scene model (the user picks the engine), web HDRIs before generated skies,
+and the real-asset pipelines (SAM3 → Hunyuan3D 2.1 → `add_asset`, SAM3 → Chord →
+`set_material`) — from its `src/tools/worlds.py`.
 
 ## Status
 

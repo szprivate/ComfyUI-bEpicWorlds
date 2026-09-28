@@ -155,6 +155,26 @@ def calibrate_world(name: str, wait_seconds: float = 60.0) -> str:
 
 
 @mcp.tool()
+def find_hdri(query: str = "", time_of_day: str = "", weather: str = "", environment: str = "outdoor",
+              open_sky: bool = True, limit: int = 8) -> str:
+    """Photographed HDR environments on Poly Haven (CC0) that fit a world, best first, each with
+    a thumbnail URL to look at before choosing. query: words ("overcast old town"); time_of_day:
+    sunrise | midday | sunset | night | morning-afternoon; weather: clear | partly_cloudy |
+    overcast | foggy; environment: outdoor | indoor; open_sky: prefer mostly-sky panoramas (for a
+    world that brings its own buildings). Prefer one of these to a generated sky."""
+    return _dump(be().find_hdri(query=query, time_of_day=time_of_day or None, weather=weather or None,
+                                environment=environment or None, open_sky=open_sky, limit=limit))
+
+
+@mcp.tool()
+def set_hdri(name: str, hdri_id: str, resolution: str = "4k", sun: str = "match") -> str:
+    """Make a Poly Haven HDRI (an id from find_hdri) the world's sky, light and reflections, as a
+    new version. sun: "match" turns the panorama so its sun stands where the world's does;
+    "keep" moves the world's sun to the panorama's. resolution: 2k | 4k | 8k."""
+    return _dump(be().set_hdri(name, hdri_id, resolution=resolution, sun=sun))
+
+
+@mcp.tool()
 def open_in_viewer(name: str, version: int = 0) -> str:
     """Open (or refresh) a world's tab in the bEpic viewer. Needs ComfyUI running."""
     return _dump(be().open(name, version or None))

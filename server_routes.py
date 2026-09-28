@@ -8,6 +8,7 @@ image given by path must sit in ComfyUI's input, output or temp folder. No
 route starts a process.
 """
 
+import asyncio
 import json
 import os
 
@@ -89,7 +90,7 @@ def view_ref(path):
             "type": "output"}
 
 
-_FILE_KEYS = ("glb", "texture", "albedo", "normal", "roughness", "height", "mask", "panorama", "video")
+_FILE_KEYS = ("glb", "texture", "albedo", "normal", "roughness", "height", "mask", "panorama", "video", "file")
 
 
 def resolve_op_files(ops):
@@ -231,7 +232,11 @@ def register():
             ops = d.get("ops")
             if isinstance(ops, str):
                 ops = json.loads(ops)
-            out = store().edit(d.get("name", ""), resolve_op_files(ops), note=d.get("note", ""))
+            # Off the server's loop: placing a scene model fits it to the
+            # picture (seconds), and ComfyUI must keep answering meanwhile.
+            resolved = resolve_op_files(ops)
+            out = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: store().edit(d.get("name", ""), resolved, note=d.get("note", "")))
             if d.get("open_in_viewer", True):
                 out["viewer"] = open_in_viewer(out["name"])
             return web.json_response(out)
@@ -380,6 +385,54 @@ def register():
         try:
             d = await _json(request)
             return web.json_response({"choices": slots_mod.choose(store().root, d.get("slot", ""), d.get("template") or "")})
+        except Exception as e:
+            return _err(e)
+
+    @routes.get("/bepic_worlds/hdri_search")
+    async def hdri_search(request):
+        """HDR environments on Poly Haven that fit: ?query=words&time_of_day=
+        &weather=&environment=&urban=true|false&limit= — each with a thumbnail
+        to look at before choosing."""
+        try:
+            from .bepic_worlds import hdri as hdrimod
+            q = request.query
+            urban = q.get("urban")
+            args = dict(query=q.get("query", ""), time_of_day=q.get("time_of_day") or None,
+                        weather=q.get("weather") or None, environment=q.get("environment") or None,
+                        urban=None if urban in (None, "") else urban.lower() in ("1", "true", "yes"),
+                        open_sky=str(q.get("open_sky") or "").lower() in ("1", "true", "yes"),
+                        limit=int(q.get("limit") or 8))
+            hits = await asyncio.get_running_loop().run_in_executor(None, lambda: hdrimod.search(**args))
+            return web.json_response({"source": "Poly Haven (CC0)", "matches": hits})
+        except Exception as e:
+            return _err(e)
+
+    @routes.post("/bepic_worlds/hdri")
+    async def hdri_apply(request):
+        """Download a Poly Haven HDRI and make it a world's environment, as a
+        new version: {name, id, resolution? ('4k'), sun? ('match' | 'keep'),
+        lighting? (true), note?}."""
+        try:
+            from .bepic_worlds import hdri as hdrimod
+            d = await _json(request)
+            name = store_mod.safe_name(d.get("name", ""))
+            s = store()
+            if not s.exists(name):
+                return _err(f"no world '{name}'", 404)
+            aid, res = str(d.get("id") or ""), str(d.get("resolution") or "4k")
+            loop = asyncio.get_running_loop()
+            path = await loop.run_in_executor(None, lambda: hdrimod.fetch(aid, res, os.path.join(s.root, "_hdri")))
+            op = {"op": "set_hdri", "file": path, "source": "Poly Haven", "license": "CC0",
+                  "url": f"https://polyhaven.com/a/{aid}", "title": aid,
+                  "sun": d.get("sun") or "match", "lighting": d.get("lighting", True)}
+            out = await loop.run_in_executor(None, lambda: s.edit(
+                name, [op], note=d.get("note") or f"environment: Poly Haven HDRI '{aid}' ({res})"))
+            if d.get("open_in_viewer", True):
+                out["viewer"] = open_in_viewer(out["name"])
+            env = next((i for i in s.load(name)["items"] if i.get("id") == "env"), {})
+            out["sun"] = env.get("sun")
+            out["hdri"] = {"id": aid, "resolution": res, "file": path}
+            return web.json_response(out)
         except Exception as e:
             return _err(e)
 

@@ -7,6 +7,7 @@ They are the same operations the MCP server and the CLI offer, so a workflow
 import json
 import os
 
+import folder_paths
 import numpy as np
 import torch
 from PIL import Image
@@ -406,7 +407,44 @@ class bEpicUnpad:
         return (x[:, py:h - py, px:w - px, :3].contiguous(),)
 
 
+class bEpicFile3DFromPath:
+    """A 3D file a node wrote and handed on as a path (SHARP's Gaussian .ply),
+    as the 3D-file input core nodes take (File3D to Splat, Save 3D Model).
+    Only files in ComfyUI's input, output and temp folders."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"path": ("STRING", {"forceInput": True})}}
+
+    RETURN_TYPES = ("FILE_3D",)
+    FUNCTION = "run"
+    CATEGORY = "bEpic/worlds"
+
+    def run(self, path):
+        from comfy_api.latest._util.geometry_types import File3D
+        real = os.path.realpath(str(path).strip())
+        dirs = []
+        for get in (folder_paths.get_input_directory, folder_paths.get_output_directory,
+                    folder_paths.get_temp_directory):
+            try:
+                dirs.append(os.path.realpath(get()))
+            except Exception:
+                pass
+        inside = False
+        for d in dirs:
+            try:
+                inside = inside or os.path.commonpath([real, d]) == d
+            except ValueError:
+                pass
+        if not inside:
+            raise ValueError("the 3D file must be in ComfyUI's input, output or temp folder")
+        if not os.path.isfile(real):
+            raise FileNotFoundError(f"no such file: {path}")
+        return (File3D(real),)
+
+
 NODE_CLASS_MAPPINGS = {
+    "bEpicFile3DFromPath": bEpicFile3DFromPath,
     "bEpicWorldDepth": bEpicWorldDepth,
     "bEpicSaveDepth16": bEpicSaveDepth16,
     "bEpicSeamlessModel": bEpicSeamlessModel,
@@ -419,6 +457,7 @@ NODE_CLASS_MAPPINGS = {
     "bEpicWorldFeedback": bEpicWorldFeedback,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "bEpicFile3DFromPath": "bEpic 3D File From Path",
     "bEpicWorldDepth": "bEpic World Depth (16-bit)",
     "bEpicSaveDepth16": "bEpic Save Depth (16-bit)",
     "bEpicSeamlessModel": "bEpic Seamless Model (tileable output)",

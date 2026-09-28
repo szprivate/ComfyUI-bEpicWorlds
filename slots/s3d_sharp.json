@@ -1,0 +1,82 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "example.png"
+  },
+  "_meta": {
+   "title": "IN:image"
+  }
+ },
+ "2": {
+  "class_type": "LoadSharpModel",
+  "inputs": {
+   "precision": "auto"
+  }
+ },
+ "3": {
+  "class_type": "SharpPredict",
+  "inputs": {
+   "model": [
+    "2",
+    0
+   ],
+   "image": [
+    "1",
+    0
+   ],
+   "focal_length_mm": 30.0,
+   "output_prefix": "worlds/sharp_scene"
+  },
+  "_meta": {
+   "title": "IN:focal_length_mm.focal_length_mm"
+  }
+ },
+ "4": {
+  "class_type": "bEpicFile3DFromPath",
+  "inputs": {
+   "path": [
+    "3",
+    0
+   ]
+  }
+ },
+ "5": {
+  "class_type": "File3DToSplat",
+  "inputs": {
+   "model_3d": [
+    "4",
+    0
+   ]
+  }
+ },
+ "6": {
+  "class_type": "SplatToMesh",
+  "inputs": {
+   "splat": [
+    "5",
+    0
+   ],
+   "resolution": 640,
+   "kernel": 5,
+   "smooth": 0,
+   "level": 0.4,
+   "min_component": 500,
+   "min_opacity": 0.02,
+   "color_sharpen": 2.0
+  }
+ },
+ "7": {
+  "class_type": "SaveGLB",
+  "inputs": {
+   "mesh": [
+    "6",
+    0
+   ],
+   "filename_prefix": "worlds/scene"
+  },
+  "_meta": {
+   "title": "OUT:mesh"
+  }
+ }
+}

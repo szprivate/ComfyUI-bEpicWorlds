@@ -107,15 +107,18 @@
   }
  },
  "sky": {
-  "about": "A 2:1 equirectangular sky panorama that wraps sideways.",
+  "about": "A 2:1 equirectangular sky panorama that wraps sideways. Made when no photographed HDRI on the web fits (hdri_search first).",
   "inputs": {
    "prompt": "the sky"
   },
   "outputs": {
-   "panorama": "2048x1024 image"
+   "panorama": "2:1 image (8192x4096 from the hires workflow)"
   },
-  "default": "sky_zimage_pano",
+  "default": "sky_zimage_pano_hires",
   "templates": {
+   "sky_zimage_pano_hires": {
+    "about": "Z-Image Turbo 2:1, sampled to wrap sideways, then 4x upscaled across the seam to 8192x4096 (local, ~40 s)."
+   },
    "sky_zimage_pano": {
     "about": "Z-Image Turbo 2:1, sampled to wrap sideways (local). Not a true equirectangular projection; fine for skies."
    },
@@ -159,6 +162,61 @@
   "templates": {
    "object_zimage_rmbg": {
     "about": "Z-Image Turbo + RMBG-2.0 (local)."
+   }
+  }
+ },
+ "scene_model": {
+  "about": "One 3D model of the whole picture, the heart of a world (the set_scene_model edit places it). 'frame' says how it is placed: object models are fitted to the picture; camera models are made in the reference camera's own space, in metres.",
+  "inputs": {
+   "image": "the reference picture",
+   "seed": "variant (where the workflow has one)"
+  },
+  "outputs": {
+   "mesh": "GLB"
+  },
+  "default": "s3d_trellis2",
+  "templates": {
+   "s3d_trellis2": {
+    "about": "TRELLIS.2, textured PBR mesh (local, ~3-6 min). The official template; background removal on unless remove_background=false.",
+    "frame": "object",
+    "textured": true,
+    "cost": "local"
+   },
+   "s3d_pixal3d": {
+    "about": "Pixal3D: TRELLIS.2 built pixel-aligned to the picture's own camera (MoGe estimates its field of view); textured (local, ~3-6 min).",
+    "frame": "object",
+    "textured": true,
+    "cost": "local"
+   },
+   "s3d_hunyuan21": {
+    "about": "Hunyuan3D 2.1, shape only; painted with the picture from the reference camera (local, ~2 min).",
+    "frame": "object",
+    "textured": false,
+    "cost": "local"
+   },
+   "s3d_sharp": {
+    "about": "Apple SHARP: the picture as metric 3D Gaussians in the camera's space, meshed with colours (local, ~1 min). Exactly aligned with the picture; only what the picture shows.",
+    "frame": "camera_cv",
+    "textured": true,
+    "cost": "local"
+   },
+   "s3d_moge": {
+    "about": "MoGe-2: the picture as a metric mesh in the camera's space, textured with the picture itself (local, ~20 s). Exactly aligned; only what the picture shows.",
+    "frame": "camera_gl",
+    "textured": true,
+    "cost": "local"
+   },
+   "s3d_meshy": {
+    "about": "Meshy image-to-3D of the whole picture, PBR-textured, 300k triangles (API: costs credits, ~3-5 min).",
+    "frame": "object",
+    "textured": true,
+    "cost": "api"
+   },
+   "s3d_tripo": {
+    "about": "Tripo 3.1 image-to-3D, PBR-textured (API: costs credits, ~2-4 min).",
+    "frame": "object",
+    "textured": true,
+    "cost": "api"
    }
   }
  }

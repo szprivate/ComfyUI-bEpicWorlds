@@ -1,0 +1,49 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "example.png"
+  },
+  "_meta": {
+   "title": "IN:image"
+  }
+ },
+ "2": {
+  "class_type": "TripoImageToModelNodeV2",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "model_version": "v3.1-20260211",
+   "texture": true,
+   "pbr": true,
+   "model_seed": 7,
+   "texture_seed": 7,
+   "texture_quality": "detailed",
+   "texture_alignment": "original_image",
+   "face_limit": 300000,
+   "quad": false,
+   "geometry_quality": "detailed",
+   "orientation": "default",
+   "smart_low_poly": false,
+   "auto_size": true
+  },
+  "_meta": {
+   "title": "IN:seed.model_seed"
+  }
+ },
+ "3": {
+  "class_type": "SaveGLB",
+  "inputs": {
+   "mesh": [
+    "2",
+    1
+   ],
+   "filename_prefix": "worlds/scene"
+  },
+  "_meta": {
+   "title": "OUT:mesh"
+  }
+ }
+}

@@ -357,6 +357,10 @@ class WorldStore:
             return ["terrain", "refcam", "hero", "scene"]
         if kind == "add_asset":
             return self._add_asset(name, scene, op, version)
+        if kind == "set_scene_model":
+            return self._set_scene_model(name, scene, op, version)
+        if kind == "set_hdri":
+            return self._set_hdri(name, scene, op, version)
         if kind == "set_material":
             return self._set_material(name, scene, op, version)
         if kind == "set_sky":
@@ -448,6 +452,144 @@ class WorldStore:
             scene["items"].append(item)
             ids.append(iid)
         return ids
+
+    def _set_scene_model(self, name, scene, op, version):
+        """The whole picture as one 3D model, standing where the picture is.
+
+        op: {glb, frame: "object" (Meshy, Trellis, Tripo, Hunyuan … — fitted to
+        the picture) | "camera_cv" / "camera_gl" (SHARP, MoGe — made in the
+        reference camera's space, placed by it), engine?, height_m? (object:
+        the height of its tallest parts, instead of the picture's), yaw?
+        (object: fixed turn), scale? (camera: metres per unit, default 1),
+        hide_hero? (default true: the model replaces the flat picture),
+        flatten? (default true: the terrain meets the model's ground)}.
+
+        The item is `scene` (a model), replacing an earlier one. A model that
+        comes without colours is painted with the picture from the camera."""
+        import shutil
+        import numpy as np
+        from . import scene_model as sm
+        glb = op.get("glb")
+        if not glb or not os.path.isfile(glb):
+            raise ValueError("set_scene_model needs `glb`: the model of the whole picture")
+        frame = str(op.get("frame") or "object")
+        settled = sm.settle_camera(scene)
+        mesh = sm.load_mesh(glb)
+        folder = os.path.join(self.dir(name), "assets", "models")
+        os.makedirs(folder, exist_ok=True)
+        if frame == "object":
+            fit = sm.fit_object_model(scene, mesh, height_m=op.get("height_m"), yaw=op.get("yaw"))
+            position, rotation, scale = fit["position"], [0.0, fit["yaw"], 0.0], [fit["scale"]] * 3
+            level = None
+        else:
+            fit = sm.fit_camera_model(scene, mesh, frame=frame, scale=float(op.get("scale") or 1.0))
+            position, rotation, scale = fit["position"], fit["rotation"], fit["scale"]
+            level = fit["ground_world"]
+        footprint = fit.pop("footprint_world")
+        to_world = sm.item_matrix(position, rotation, scale)
+        if level is None:
+            g = fit["ground_level"]
+            level = float((to_world @ np.array([0.0, g, 0.0, 1.0]))[1])
+        import trimesh
+        parts = [g for g in trimesh.load(glb, force="scene").dump() if isinstance(g, trimesh.Trimesh)]
+        coloured = any(sm.has_colour(p) for p in parts)
+        ext = os.path.splitext(glb)[1].lower() or ".glb"
+        out = os.path.join(folder, f"scene_v{version}{ext if coloured else '.glb'}")
+        painted = None
+        if coloured:
+            shutil.copyfile(glb, out)
+        else:
+            hero = next((i for i in scene["items"] if i.get("id") == "hero"), None)
+            picture = ((hero or {}).get("depthmesh") or {}).get("src", {}).get("path") or \
+                (((next((i for i in scene["items"] if i.get("id") == "refcam"), {}) or {}).get("reference") or {})
+                 .get("src") or {}).get("path")
+            if not picture or not os.path.isfile(picture):
+                raise ValueError("the model has no colours and the world has no picture to paint it with")
+            painted = sm.camera_texture(mesh, to_world, scene, picture, out)
+        changed = ["scene"]
+        if op.get("flatten", True):
+            changed += sm.flatten_under(scene, footprint, level,
+                                        os.path.join(self.dir(name), "assets", f"heightmap_v{version}.png"))
+            if frame == "object":
+                sm.settle_camera(scene)
+            else:
+                # a camera model is tied to the camera: the ground came to it,
+                # and only where the walk starts follows the new ground
+                walk = scene.get("walk") or {}
+                if walk.get("spawn"):
+                    sp = walk["spawn"]
+                    sp[1] = round(float(sm.ground_heights(scene, [sp[0]], [sp[2]])[0])
+                                  + float(walk.get("eyeHeight", 1.7)), 4)
+        clear = sm.footprint_clear(footprint)
+        for it in scene["items"]:
+            if it.get("kind") == "scatter":
+                s = it["scatter"]
+                cur = s.get("clear")
+                cur = [] if not cur else ([cur] if isinstance(cur, dict) else list(cur))
+                s["clear"] = cur + [clear]
+                changed.append(it["id"])
+        if op.get("hide_hero", True):
+            for it in scene["items"]:
+                if it.get("id") == "hero":
+                    it["visible"] = False
+                    changed.append("hero")
+        scene["items"] = [i for i in scene["items"] if i.get("id") != "scene"]
+        item = {"id": "scene", "kind": "model", "name": "Scene model",
+                **builder._transform(position, rotation, scale),
+                "src": builder.src(out, f"scene{os.path.splitext(out)[1]}")}
+        item["src"]["format"] = os.path.splitext(out)[1].lstrip(".").lower()
+        item["scene_model"] = {"engine": str(op.get("engine") or ""), "frame": frame,
+                               "ground_y": round(level, 3), "camera_settled_m": settled,
+                               **{k: v for k, v in fit.items() if k not in ("position", "rotation", "scale")}}
+        if painted:
+            item["scene_model"]["painted"] = painted
+        scene["items"].append(item)
+        return changed
+
+    def _set_hdri(self, name, scene, op, version):
+        """An HDR environment: op {file (.hdr/.exr, equirectangular), source?,
+        license?, url?, sun? ("match": turn the panorama so its sun stands where
+        the world's does — default; "keep": the world's sun follows the
+        panorama's), lighting? (default true: the panorama lights the world
+        and gives its reflections)}. The sun found in it sets the world's sun
+        direction and colour; an overcast one (no sun) softens the shadows."""
+        from . import hdri as hdrimod
+        path = op.get("file")
+        if not path or not os.path.isfile(path):
+            raise ValueError("set_hdri needs `file`: an equirectangular .hdr or .exr")
+        env = self._item(scene, "env")
+        sun_now = env.get("sun") or {}
+        dst = os.path.join(self.dir(name), "assets", "sky", f"hdri_v{version}.hdr")
+        info = hdrimod.install(path, dst, match_azimuth=float(sun_now.get("azimuth", 150.0))
+                               if op.get("sun", "match") == "match" else None)
+        sky = env.setdefault("sky", {})
+        sky["mode"] = "panorama"
+        sky["src"] = builder.src(dst)
+        sky["hdr"] = True
+        sky["lighting"] = bool(op.get("lighting", True))
+        sky["source"] = {k: op[k] for k in ("source", "license", "url", "title") if op.get(k)}
+        cols = info.get("colours") or {}
+        sky.update({"top": cols.get("top", sky.get("top")), "horizon": cols.get("horizon", sky.get("horizon")),
+                    "bottom": cols.get("bottom", sky.get("bottom"))})
+        env.setdefault("ambient", {}).update({"sky": cols.get("top", "#9fb8d6"), "ground": cols.get("ground", "#5a5548")})
+        env.setdefault("fog", {})["color"] = cols.get("horizon", env.get("fog", {}).get("color", "#c3cfd8"))
+        sky["turned_by"] = info.get("turned_by", 0.0)
+        sun = info.get("sun")
+        if sun:
+            env.setdefault("sun", {}).update({"azimuth": sun["azimuth"], "elevation": sun["elevation"],
+                                              "color": sun["color"], "shadows": True})
+        else:
+            env.setdefault("sun", {}).update({"shadows": False})
+        render = env.setdefault("render", {})
+        if sky["lighting"]:
+            # the panorama carries the reflections now, and most of the fill;
+            # an exposure matched to the old light means nothing under the new
+            # one (install() evens every HDRI's sky to the same level), so it
+            # starts from 1 again until world_calibrate measures it
+            render["reflections"] = "sky"
+            render["fill"] = 0.15
+            render["exposure"] = 1.0
+        return ["env"]
 
     def _set_motion(self, name, scene, op, version):
         """Ambient motion on the picture's own 3D view: op {video (a loop that
@@ -639,6 +781,15 @@ OPS = {
                   "where the mask is white (the motion slot makes one).",
     "set_sky": "{op, panorama, horizon?, level?} — a 2:1 sky panorama (the sky slot makes one); its "
                "horizon is moved to the middle row unless level is false.",
+    "set_scene_model": "{op, glb, frame: 'object' | 'camera_cv' | 'camera_gl', engine?, height_m?, yaw?, scale?, "
+                       "hide_hero? (true), flatten? (true)} — the whole picture as one 3D model (item 'scene'): an "
+                       "object model (Meshy, Trellis, Tripo, Hunyuan…) is sized from the picture's buildings, turned "
+                       "and placed by fitting it to the picture's 3D points; a camera model (SHARP, MoGe) goes where "
+                       "the reference camera says. The terrain is flattened to the model's ground; a model without "
+                       "colours is painted with the picture.",
+    "set_hdri": "{op, file (.hdr/.exr), source?, license?, url?, title?, sun? ('match' | 'keep'), lighting? (true)} — "
+                "an HDR environment (e.g. from Poly Haven): the sky, the world's image light and reflections; its "
+                "sun sets the world's sun (turned to where the world's sun was, unless sun='keep').",
 }
 
 

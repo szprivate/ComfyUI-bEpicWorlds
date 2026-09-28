@@ -29,7 +29,11 @@ scatter on a grid, and overhead light without shadows in place of a sun.
 |---|---|
 | `sky.mode` | `gradient` or `panorama` |
 | `sky.top`, `sky.horizon`, `sky.bottom` | gradient colours |
-| `sky.src` | equirectangular panorama file (mode `panorama`) |
+| `sky.src` | equirectangular panorama file (mode `panorama`): a picture, or an HDR `.hdr` / `.exr` |
+| `sky.hdr` | true for a high-dynamic-range panorama (also inferred from `.hdr` / `.exr`) — read at full range |
+| `sky.lighting` | true: the panorama lights the world and gives its reflections (image-based light), not only its backdrop |
+| `sky.intensity` | multiplies the panorama as backdrop and as light (default 1) |
+| `sky.source` | where it came from: `{source, license, url, title}` (e.g. Poly Haven, CC0) |
 | `sun.azimuth`, `sun.elevation` | degrees (see axes) |
 | `sun.color`, `sun.intensity` | light colour; intensity ~2.5 day, ~0.3 night |
 | `sun.shadows` | true/false |
@@ -38,7 +42,7 @@ scatter on a grid, and overhead light without shadows in place of a sun.
 | `render.tone` | tone curve: `neutral` (keeps colours; default for worlds), `aces`, `agx`, `linear` |
 | `render.exposure` | multiplies the viewer's own exposure |
 | `render.bloom` | glow strength around bright things (lamps, the sun), 0 = off |
-| `render.reflections` | `capture`: reflections and image light taken from the world itself at the walk spawn; `off` |
+| `render.reflections` | `capture`: reflections and image light taken from the world itself at the walk spawn; `sky`: the sky panorama's own (with `sky.lighting`); `off` |
 | `render.fill` | share of the hemisphere fill kept once reflections carry light too (0.35 outdoors, 0.8 indoors) |
 
 ## `terrain` (id `terrain`)
@@ -96,6 +100,20 @@ y = 0 and textured from the object's crop), `scale` = its height in metres,
 `rotation[1]` = yaw (facing the reference camera unless given),
 `from_picture` = the box `[x0, y0, x1, y1]` (0..1) it was placed from.
 
+## `model` id `scene` (from `set_scene_model`)
+The whole picture as ONE model — the heart of a world built around it. Its GLB
+is kept as the engine wrote it (or painted with the picture when it came
+without colours); the item's transform places it: `position`, `rotation`
+(`[0, yaw, 0]` for an object model; the reference camera's pitch, +180 for an
+OpenCV-axed one, for a camera model), `scale` (metres per model unit).
+`scene_model` says how it got there: `engine`, `frame` (`object` | `camera_cv` |
+`camera_gl`), `ground_y` (world height of its ground — the terrain is flattened
+to it under the model), `size_m` `[w, h, d]`, and for an object model `yaw`,
+`scale_from`, `error_m` (trimmed distance to the picture's own 3D points) and
+`coverage` (share of those points the model comes near). The picture's depth
+mesh (`hero`) is hidden, scatter is kept out of the footprint, and the reference
+camera stands eye-high on the ground again.
+
 ## Generative steps: slots
 Every generative step of building a world is a **slot** filled by a ComfyUI
 workflow — never by code in the pack. `GET /bepic_worlds/slots` lists them with
@@ -112,7 +130,8 @@ pack, or the name of a template in the agent's own library; empty = default);
 | `texture_refine` | patch, prompt, denoise → texture | `texture_refine_zimage` (img2img) |
 | `texture_generate` | prompt → texture | `texture_generate_zimage` |
 | `material` | texture → albedo, normal, roughness, metalness | `material_chord` (upscale + Chord) |
-| `sky` | prompt → 2:1 panorama | `sky_zimage_pano`, `sky_qwen360` (needs the Qwen 360 LoRA) |
+| `sky` | prompt → 2:1 panorama | `sky_zimage_pano_hires` (8192×4096: wrap-padded 4x upscale), `sky_zimage_pano`, `sky_qwen360` (needs the Qwen 360 LoRA) — only when no photographed HDRI fits |
+| `scene_model` | picture, seed → one mesh of the whole picture | `s3d_trellis2`, `s3d_pixal3d` (pixel-aligned), `s3d_hunyuan21` (shape only), `s3d_sharp`, `s3d_moge` (both built in the camera's space), `s3d_meshy`, `s3d_tripo` (API) — the manifest gives each one's `frame`, `textured` and `cost` |
 | `object_image` | prompt → image, mask | `object_zimage_rmbg` (Z-Image + RMBG) |
 | `motion` | picture, prompt, width, height, length → looping video | `motion_wan22_loop` (Wan 2.2 Fun Inpaint, first = last frame) |
 
@@ -157,6 +176,27 @@ The routes an agent strings together (all POST, all JSON):
 
 Generated meshes are decimated to ~40k triangles; faces the picture never saw take
 a blurred copy of the crop; meshes that come textured keep their materials.
+
+## The whole picture as one model
+`edit` with `set_scene_model {glb, frame, engine?, height_m?, yaw?, scale?, hide_hero?, flatten?}`:
+- **object** models (Meshy, TRELLIS, Tripo, Hunyuan …) are sized so their tallest parts
+  (95th percentile above their own ground) match the picture's buildings as its depth
+  measures them (or `height_m`), grounded where their outer rim meets the ground, and
+  turned and moved by a trimmed fit of what the reference camera sees of them to the
+  picture's 3D points, from twelve starting turns;
+- **camera** models (SHARP `camera_cv`: x right, y down, z forward; MoGe `camera_gl`:
+  y up, looking down −Z) go where the reference camera says, in metres, and the
+  terrain comes to their ground.
+
+## A real sky
+`GET /bepic_worlds/hdri_search?query=&time_of_day=&weather=&environment=&urban=&open_sky=&limit=`
+scores Poly Haven's HDRIs (CC0) by their own attributes and words and returns the best,
+each with a thumbnail; `open_sky=true` prefers ones that are mostly sky over a low
+horizon. `POST /bepic_worlds/hdri {name, id, resolution? (4k), sun? ("match"|"keep"),
+lighting? (true)}` downloads one (Poly Haven's hosts only) and applies `set_hdri`: the
+panorama is turned so its sun stands where the world's sun is, its sky evened to one
+brightness, and its sun, colours and fill set the world's light (`sun.shadows` off for
+an overcast one; `render.exposure` back to 1 until `calibrate` measures it).
 
 ## Cameras
 Standard previz camera (`fov` vertical degrees, `resolution` `[w, h]`) plus
