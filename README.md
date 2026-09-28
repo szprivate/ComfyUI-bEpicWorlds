@@ -38,20 +38,27 @@ For the MCP server, the `mcp` package (already in most ComfyUI environments):
 
 ## Using it from an agent
 
-Register the MCP server with ComfyUI's Python, so it has numpy and Pillow:
+Register the MCP server with any Python that has `numpy`, `Pillow` and `mcp`
+(ComfyUI's own does), run from this pack's folder — the paths are your
+machine's, so put yours in:
 
 ```json
 {
   "mcpServers": {
     "bepic-worlds": {
-      "command": "D:/ai/comfyui/.venv/Scripts/python.exe",
+      "command": "<ComfyUI>/.venv/bin/python",
       "args": ["-s", "-m", "bepic_worlds.mcp_server"],
-      "cwd": "D:/AI/comfyui/custom_nodes/ComfyUI-bEpicWorlds",
+      "cwd": "<ComfyUI>/custom_nodes/ComfyUI-bEpicWorlds",
       "env": {"COMFYUI_URL": "http://127.0.0.1:8188"}
     }
   }
 }
 ```
+
+(`.venv\Scripts\python.exe` on Windows.) agentY needs none of that: its
+shared `config/mcp.json` says `${PYTHON}` and `${BEPIC_WORLDS_DIR}`, and finds
+the pack in the running ComfyUI's custom_nodes on whatever machine it runs on
+(or set `BEPIC_WORLDS_DIR`).
 
 With ComfyUI running, the server works **through ComfyUI** (the `/bepic_worlds/*`
 routes): worlds land in ComfyUI's own output folder — wherever a launcher put it
